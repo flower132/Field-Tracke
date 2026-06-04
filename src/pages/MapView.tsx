@@ -7,7 +7,8 @@ import { useAuthStore } from '../store/authStore'
 import { getUsers, getLatestTracks, getCheckins, getTracksByUser } from '../api/supabase'
 import { getTodayRange, formatDistance, calculatePolylineDistance, formatDateTime } from '../utils/helpers'
 import { getUserColor } from '../utils/constants'
-import type { Track, User } from '../types'
+import HeatmapLayer from '../components/HeatmapLayer'
+import type { Track, User, Checkin } from '../types'
 import L from 'leaflet'
 
 // Fix Leaflet icon paths
@@ -121,10 +122,19 @@ export default function MapView() {
     return calculatePolylineDistance(selectedTracks)
   }, [selectedTracks])
 
+  const heatPoints = useMemo(() => {
+    return (todayCheckins || []).map((c: Checkin) => ({
+      latitude: c.latitude,
+      longitude: c.longitude,
+      intensity: c.complaint_content?.trim() ? 1 : 0.3,
+    }))
+  }, [todayCheckins])
+
   const layerOptions = [
     { key: 'realtime' as const, label: '实时位置' },
     { key: 'tracks' as const, label: '轨迹' },
     { key: 'checkins' as const, label: '打卡点' },
+    { key: 'heat' as const, label: '热力图' },
   ]
 
   return (
@@ -198,6 +208,22 @@ export default function MapView() {
               </Popup>
             </Marker>
           ))}
+
+        {activeLayers.includes('heat') && heatPoints.length > 0 && (
+          <HeatmapLayer
+            points={heatPoints}
+            radius={28}
+            blur={18}
+            minOpacity={0.25}
+            gradient={{
+              0.2: '#3b82f6',
+              0.45: '#10b981',
+              0.7: '#f59e0b',
+              0.9: '#ef4444',
+              1.0: '#7f1d1d',
+            }}
+          />
+        )}
       </MapContainer>
 
       {/* Layer toggle */}

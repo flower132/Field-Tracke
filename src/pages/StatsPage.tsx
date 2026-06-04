@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
-import { MapContainer, TileLayer } from 'react-leaflet'
-import { Users, Route, MapPin, ClipboardCheck } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { MapContainer, TileLayer, useMap } from 'react-leaflet'
+import { Users, Route, MapPin, ClipboardCheck, Layers } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getUsers, getCheckins, getTracks } from '../api/supabase'
 import {
@@ -11,10 +11,32 @@ import {
   calculateOnlineMinutes,
 } from '../utils/helpers'
 import { getUserColor } from '../utils/constants'
-import type { UserStats, Track } from '../types'
+import HeatmapLayer from '../components/HeatmapLayer'
+import type { UserStats, Track, Checkin } from '../types'
+
+const DARK_TILE_URL =
+  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+
+function MapBounds({ points }: { points: Array<{ latitude: number; longitude: number }> }) {
+  const map = useMap()
+
+  useEffect(() => {
+    if (!map || points.length === 0) return
+    const bounds = points.map((p) => [p.latitude, p.longitude] as [number, number])
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14, animate: false })
+  }, [map, points])
+
+  return null
+}
+
+function complaintIntensity(c: Checkin): number {
+  const content = c.complaint_content?.trim()
+  return content ? 1 : 0.3
+}
 
 export default function StatsPage() {
   const [period, setPeriod] = useState<'7days' | '30days' | 'all'>('7days')
+  const [showHeat, setShowHeat] = useState(true)
 
   const { data: users } = useQuery({
     queryKey: ['users'],
@@ -99,9 +121,9 @@ export default function StatsPage() {
 
   const heatPoints = useMemo(() => {
     return (checkins || []).map((c) => ({
-      lat: c.latitude,
-      lng: c.longitude,
-      intensity: 0.8,
+      latitude: c.latitude,
+      longitude: c.longitude,
+      intensity: complaintIntensity(c),
     }))
   }, [checkins])
 
@@ -172,48 +194,64 @@ export default function StatsPage() {
       <div className="mt-6 rounded-2xl bg-slate-900 p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold text-slate-200">投诉热力图</h2>
-          <div className="flex gap-1">
-            {periodOptions.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setPeriod(opt.key)}
-                className={`rounded-md px-2 py-1 text-xs font-medium ${
-                  period === opt.key ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-400'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="relative h-64 overflow-hidden rounded-xl">
-          <MapContainer center={[39.9042, 116.4074]} zoom={11} className="h-full w-full" zoomControl={false}>
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-          </MapContainer>
-          {heatPoints.length > 0 && (
-            <div className="pointer-events-none absolute inset-0 z-[400]">
-              {heatPoints.slice(0, 30).map((p, i) => (
-                <div
-                  key={i}
-                  className="absolute rounded-full"
-                  style={{
-                    left: `${((p.lng - 115.7) / 1.4) * 100}%`,
-                    top: `${((40.2 - p.lat) / 0.6) * 100}%`,
-                    width: 60,
-                    height: 60,
-                    marginLeft: -30,
-                    marginTop: -30,
-                    background: `radial-gradient(circle, rgba(245,158,11,${p.intensity * 0.5}) 0%, transparent 70%)`,
-                  }}
-                />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowHeat((v) => !v)}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                showHeat ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-400'
+              }`}
+              title="切换热力图层"
+            >
+              <Layers size={12} />
+              热力图
+            </button>
+            <div className="flex gap-1">
+              {periodOptions.map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setPeriod(opt.key)}
+                  className={`rounded-md px-2 py-1 text-xs font-medium ${
+                    period === opt.key ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {opt.label}
+                </button>
               ))}
             </div>
-          )}
+          </div>
+        </div>
+        <div className="relative h-80 overflow-hidden rounded-xl">
+          <MapContainer
+            center={[39.9042, 116.4074]}
+            zoom={11}
+            className="h-full w-full"
+            zoomControl={false}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attribution">CARTO</a>'
+              url={DARK_TILE_URL}
+              subdomains="abcd"
+              maxZoom={19}
+            />
+            <MapBounds points={heatPoints.length > 0 ? heatPoints : [{ latitude: 39.9042, longitude: 116.4074 }]} />
+            {showHeat && heatPoints.length > 0 && (
+              <HeatmapLayer
+                points={heatPoints}
+                radius={28}
+                blur={18}
+                minOpacity={0.25}
+                gradient={{
+                  0.2: '#3b82f6',
+                  0.45: '#10b981',
+                  0.7: '#f59e0b',
+                  0.9: '#ef4444',
+                  1.0: '#7f1d1d',
+                }}
+              />
+            )}
+          </MapContainer>
           {heatPoints.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-950/50 text-sm text-slate-500">
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm text-slate-500">
               暂无数据
             </div>
           )}
