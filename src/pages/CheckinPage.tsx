@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { MapPin, Check, ImagePlus, Trash2 } from 'lucide-react'
+import { PhotoProvider, PhotoView } from 'react-photo-view'
 import { useAuthStore } from '../store/authStore'
 import { useLocationStore } from '../store/locationStore'
 import { createCheckin, getNextSequenceNo, uploadPhoto } from '../api/supabase'
@@ -203,28 +204,63 @@ export default function CheckinPage() {
           {/* Photos */}
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-400">现场照片 ({photos.length}/9)</label>
-            <div className="grid grid-cols-3 gap-2">
-              {photos.map((url, idx) => (
-                <div key={idx} className="relative aspect-square overflow-hidden rounded-xl">
-                  <img src={url} alt="" className="h-full w-full object-cover" />
+            <PhotoProvider
+              toolbarRender={({ images, index }) => {
+                const src = images[index]?.src
+                return (
+                  <div className="flex items-center gap-3 text-white">
+                    <span className="text-sm opacity-80">
+                      {index + 1} / {images.length}
+                    </span>
+                    {src && (
+                      <button
+                        onClick={() => {
+                          const a = document.createElement('a')
+                          a.href = src
+                          a.download = src.split('/').pop() || 'image.jpg'
+                          a.target = '_blank'
+                          document.body.appendChild(a)
+                          a.click()
+                          document.body.removeChild(a)
+                        }}
+                        className="text-sm opacity-80 hover:opacity-100"
+                        title="下载图片"
+                      >
+                        下载
+                      </button>
+                    )}
+                  </div>
+                )
+              }}
+            >
+              <div className="grid grid-cols-3 gap-2">
+                {photos.map((url, idx) => (
+                  <div key={idx} className="relative aspect-square overflow-hidden rounded-xl">
+                    <PhotoView src={url}>
+                      <img src={url} alt="" className="h-full w-full cursor-pointer object-cover" />
+                    </PhotoView>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removePhoto(idx)
+                      }}
+                      className="absolute right-1 top-1 rounded-full bg-slate-900/80 p-1 text-slate-300"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                {photos.length < 9 && (
                   <button
-                    onClick={() => removePhoto(idx)}
-                    className="absolute right-1 top-1 rounded-full bg-slate-900/80 p-1 text-slate-300"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex aspect-square flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 text-slate-500"
                   >
-                    <Trash2 size={14} />
+                    <ImagePlus size={24} />
+                    <span className="mt-1 text-xs">添加照片</span>
                   </button>
-                </div>
-              ))}
-              {photos.length < 9 && (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex aspect-square flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 text-slate-500"
-                >
-                  <ImagePlus size={24} />
-                  <span className="mt-1 text-xs">添加照片</span>
-                </button>
-              )}
-            </div>
+                )}
+              </div>
+            </PhotoProvider>
             <input
               ref={fileInputRef}
               type="file"

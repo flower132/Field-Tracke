@@ -65,3 +65,8 @@
 2026-06-04 06:22:53 | Edit | /Users/temp/Vibe_Project/Field_Tracker/src/pages/MapView.tsx
 2026-06-04 06:23:06 | Edit | /Users/temp/Vibe_Project/Field_Tracker/src/pages/MapView.tsx
 2026-06-04 06:23:17 | Edit | /Users/temp/Vibe_Project/Field_Tracker/src/pages/MapView.tsx
+2026-06-04 06:29:57 | Edit | /Users/temp/Vibe_Project/Field_Tracker/src/main.tsx
+2026-06-04 06:30:04 | Edit | /Users/temp/Vibe_Project/Field_Tracker/src/pages/CheckinList.tsx
+2026-06-04 06:30:21 | Edit | /Users/temp/Vibe_Project/Field_Tracker/src/pages/CheckinList.tsx
+2026-06-04 06:30:25 | Edit | /Users/temp/Vibe_Project/Field_Tracker/src/pages/CheckinPage.tsx
+2026-06-04 06:30:55 | Edit | /Users/temp/Vibe_Project/Field_Tracker/src/pages/CheckinPage.tsx

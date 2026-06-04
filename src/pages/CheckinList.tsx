@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import { List, Map, Search } from 'lucide-react'
+import { PhotoProvider, PhotoView } from 'react-photo-view'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../store/authStore'
 import { getCheckins } from '../api/supabase'
@@ -153,11 +154,47 @@ function CheckinCard({ checkin, isAdmin }: { checkin: Checkin; isAdmin: boolean 
             </div>
           )}
           {checkin.photos && checkin.photos.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pt-1">
-              {checkin.photos.map((p) => (
-                <img key={p.id} src={p.photo_url} alt="" className="h-20 w-20 rounded-lg object-cover" />
-              ))}
-            </div>
+            <PhotoProvider
+              toolbarRender={({ images, index }) => {
+                const src = images[index]?.src
+                return (
+                  <div className="flex items-center gap-3 text-white">
+                    <span className="text-sm opacity-80">
+                      {index + 1} / {images.length}
+                    </span>
+                    {src && (
+                      <button
+                        onClick={() => {
+                          const a = document.createElement('a')
+                          a.href = src
+                          a.download = src.split('/').pop() || 'image.jpg'
+                          a.target = '_blank'
+                          document.body.appendChild(a)
+                          a.click()
+                          document.body.removeChild(a)
+                        }}
+                        className="text-sm opacity-80 hover:opacity-100"
+                        title="下载图片"
+                      >
+                        下载
+                      </button>
+                    )}
+                  </div>
+                )
+              }}
+            >
+              <div className="flex gap-2 overflow-x-auto pt-1">
+                {checkin.photos.map((p) => (
+                  <PhotoView key={p.id} src={p.photo_url}>
+                    <img
+                      src={p.photo_url}
+                      alt=""
+                      className="h-20 w-20 shrink-0 cursor-pointer rounded-lg object-cover"
+                    />
+                  </PhotoView>
+                ))}
+              </div>
+            </PhotoProvider>
           )}
         </div>
       )}
