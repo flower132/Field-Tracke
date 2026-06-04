@@ -68,6 +68,32 @@ export function calculatePolylineDistance(points: Array<{ latitude: number; long
   return total
 }
 
+/**
+ * 根据轨迹点计算在线时长（分钟）。
+ * 规则：相邻轨迹点间隔超过 10 分钟视为离线，只累加连续段内的时长。
+ */
+export function calculateOnlineMinutes(tracks: Array<{ created_at: string }>): number {
+  if (tracks.length === 0) return 0
+  const sorted = [...tracks].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  )
+  const GAP_MS = 10 * 60 * 1000 // 10 minutes
+  let totalMs = 0
+  let segmentStart = new Date(sorted[0].created_at).getTime()
+  let prevTime = segmentStart
+
+  for (let i = 1; i < sorted.length; i++) {
+    const t = new Date(sorted[i].created_at).getTime()
+    if (t - prevTime > GAP_MS) {
+      totalMs += prevTime - segmentStart
+      segmentStart = t
+    }
+    prevTime = t
+  }
+  totalMs += prevTime - segmentStart
+  return Math.round(totalMs / 60000)
+}
+
 function buildAddressFromNominatim(data: any): string {
   if (!data || !data.address) {
     return ''

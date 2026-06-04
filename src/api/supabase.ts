@@ -77,6 +77,19 @@ export async function getLatestTracks() {
   return { data: data as (Track & { user: User })[] | null, error }
 }
 
+export async function getTracks(start?: string, end?: string) {
+  let query = supabase
+    .from('tracks')
+    .select('*')
+    .order('created_at', { ascending: true })
+
+  if (start) query = query.gte('created_at', start)
+  if (end) query = query.lte('created_at', end)
+
+  const { data, error } = await query
+  return { data: data as Track[] | null, error }
+}
+
 // Checkins
 export async function getCheckins(start?: string, end?: string) {
   let query = supabase

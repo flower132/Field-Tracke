@@ -2,8 +2,8 @@ import { useNavigate } from 'react-router-dom'
 import { Users, Route, MapPin, ClipboardCheck, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useQuery } from '@tanstack/react-query'
-import { getUsers, getCheckins } from '../api/supabase'
-import { getTodayRange, formatDistance } from '../utils/helpers'
+import { getUsers, getCheckins, getTracks } from '../api/supabase'
+import { getTodayRange, formatDistance, calculatePolylineDistance } from '../utils/helpers'
 import type { StatsSummary } from '../types'
 
 export default function Dashboard() {
@@ -29,10 +29,20 @@ export default function Dashboard() {
     },
   })
 
+  const { data: tracks } = useQuery({
+    queryKey: ['tracks', 'today'],
+    queryFn: async () => {
+      const range = getTodayRange()
+      const { data } = await getTracks(range.start, range.end)
+      return data || []
+    },
+  })
+
   const onlineCount = users?.filter((u) => u.status === 'online').length || 0
   const totalCheckins = checkins?.length || 0
-  const totalComplaints = checkins?.length || 0
-  const totalMileage = 0 // 需要计算轨迹
+  const totalComplaints =
+    checkins?.filter((c) => c.complaint_content && c.complaint_content.trim()).length || 0
+  const totalMileage = tracks ? calculatePolylineDistance(tracks) : 0
 
   const stats: StatsSummary = {
     onlineCount,

@@ -2,10 +2,16 @@ import { useState, useMemo } from 'react'
 import { MapContainer, TileLayer } from 'react-leaflet'
 import { Users, Route, MapPin, ClipboardCheck } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { getUsers, getCheckins } from '../api/supabase'
-import { getLast7DaysRange, formatDistance } from '../utils/helpers'
+import { getUsers, getCheckins, getTracks } from '../api/supabase'
+import {
+  getLast7DaysRange,
+  formatDistance,
+  formatDuration,
+  calculatePolylineDistance,
+  calculateOnlineMinutes,
+} from '../utils/helpers'
 import { getUserColor } from '../utils/constants'
-import type { UserStats } from '../types'
+import type { UserStats, Track } from '../types'
 
 export default function StatsPage() {
   const [period, setPeriod] = useState<'7days' | '30days' | 'all'>('7days')
@@ -38,28 +44,64 @@ export default function StatsPage() {
     },
   })
 
+  const { data: tracks } = useQuery({
+    queryKey: ['tracks', period],
+    queryFn: async () => {
+      let start: string | undefined
+      let end: string | undefined
+      if (period === '7days') {
+        const range = getLast7DaysRange()
+        start = range.start
+        end = range.end
+      } else if (period === '30days') {
+        const d = new Date()
+        d.setDate(d.getDate() - 30)
+        start = d.toISOString()
+        end = new Date().toISOString()
+      }
+      const { data } = await getTracks(start, end)
+      return data || []
+    },
+  })
+
+  const tracksByUser = useMemo(() => {
+    const map = new Map<string, Track[]>()
+    for (const t of tracks || []) {
+      const arr = map.get(t.user_id) || []
+      arr.push(t)
+      map.set(t.user_id, arr)
+    }
+    return map
+  }, [tracks])
+
   const stats = useMemo(() => {
     const onlineCount = (users || []).filter((u) => u.status === 'online').length
     const totalCheckins = checkins?.length || 0
-    const totalComplaints = checkins?.length || 0
-    return { onlineCount, totalCheckins, totalComplaints, totalMileage: 0 }
-  }, [users, checkins])
+    const totalComplaints =
+      checkins?.filter((c) => c.complaint_content && c.complaint_content.trim()).length || 0
+    const totalMileage = tracks ? calculatePolylineDistance(tracks) : 0
+    return { onlineCount, totalCheckins, totalComplaints, totalMileage }
+  }, [users, checkins, tracks])
 
   const userStats: UserStats[] = useMemo(() => {
-    return (users || []).map((u, idx) => ({
-      user: { ...u, color: getUserColor(idx) },
-      todayMileage: 0,
-      todayOnlineMinutes: 0,
-      todayCheckins: (checkins || []).filter((c) => c.user_id === u.id).length,
-      todayComplaints: (checkins || []).filter((c) => c.user_id === u.id).length,
-    }))
-  }, [users, checkins])
+    return (users || []).map((u, idx) => {
+      const userTracks = tracksByUser.get(u.id) || []
+      const userCheckins = (checkins || []).filter((c) => c.user_id === u.id)
+      return {
+        user: { ...u, color: getUserColor(idx) },
+        todayMileage: calculatePolylineDistance(userTracks),
+        todayOnlineMinutes: calculateOnlineMinutes(userTracks),
+        todayCheckins: userCheckins.length,
+        todayComplaints: userCheckins.filter((c) => c.complaint_content && c.complaint_content.trim()).length,
+      }
+    })
+  }, [users, checkins, tracksByUser])
 
   const heatPoints = useMemo(() => {
     return (checkins || []).map((c) => ({
       lat: c.latitude,
       lng: c.longitude,
-      intensity: 0.6 + Math.random() * 0.4,
+      intensity: 0.8,
     }))
   }, [checkins])
 
@@ -117,6 +159,8 @@ export default function StatsPage() {
                 <span className="text-sm text-slate-200">{s.user.name}</span>
               </div>
               <div className="flex gap-3 text-xs text-slate-500">
+                <span>{formatDistance(s.todayMileage)}</span>
+                <span>{formatDuration(s.todayOnlineMinutes)}</span>
                 <span>{s.todayCheckins} 打卡</span>
                 <span>{s.todayComplaints} 投诉</span>
               </div>
