@@ -10,6 +10,7 @@ export default function CheckinPage() {
   const [step, setStep] = useState<'location' | 'form' | 'success'>('location')
   const [photos, setPhotos] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
@@ -53,7 +54,8 @@ export default function CheckinPage() {
   }
 
   const handleSubmit = async () => {
-    if (!user || !latitude || !longitude) return
+    if (!user || !latitude || !longitude || saving) return
+    setSaving(true)
     const address = await getAddressFromCoords(latitude, longitude)
     const seqNo = await getNextSequenceNo(user.id)
 
@@ -69,6 +71,8 @@ export default function CheckinPage() {
       solution_result: form.solution_result,
       remark: form.remark,
     })
+
+    setSaving(false)
 
     if (error || !data) {
       alert('保存失败: ' + (error?.message || '未知错误'))
@@ -241,10 +245,10 @@ export default function CheckinPage() {
             </button>
             <button
               onClick={handleSubmit}
-              disabled={uploading}
+              disabled={uploading || saving}
               className="flex-1 rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {uploading ? '上传中...' : '保存打卡'}
+              {saving ? '保存中...' : uploading ? '上传中...' : '保存打卡'}
             </button>
           </div>
         </div>

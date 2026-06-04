@@ -68,9 +68,96 @@ export function calculatePolylineDistance(points: Array<{ latitude: number; long
   return total
 }
 
+function buildAddressFromNominatim(data: any): string {
+  if (!data || !data.address) {
+    return ''
+  }
+  const addr = data.address
+  const parts: string[] = []
+
+  const country = addr.country || ''
+
+  const city =
+    addr.city ||
+    addr.town ||
+    addr.village ||
+    addr.municipality ||
+    addr.county ||
+    addr.state ||
+    addr.region ||
+    ''
+
+  const district =
+    addr.suburb ||
+    addr.district ||
+    addr.neighbourhood ||
+    addr.borough ||
+    addr.locality ||
+    addr.quarter ||
+    addr.city_district ||
+    addr.township ||
+    addr.hamlet ||
+    ''
+
+  const road =
+    addr.road ||
+    addr.street ||
+    addr.pedestrian ||
+    addr.footway ||
+    addr.cycleway ||
+    addr.path ||
+    addr.highway ||
+    addr.avenue ||
+    ''
+
+  if (country) parts.push(country)
+  if (city) parts.push(city)
+  if (district) parts.push(district)
+  if (road) parts.push(road)
+
+  return parts.join('\n')
+}
+
 export function getAddressFromCoords(lat: number, lng: number): Promise<string> {
   return new Promise((resolve) => {
-    // In production, use a geocoding service
-    resolve(`${lat.toFixed(4)}, ${lng.toFixed(4)}`)
+    const fallback = `${lat.toFixed(5)},${lng.toFixed(5)}`
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+    fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`,
+      {
+        headers: {
+          'User-Agent': 'FieldTracker/1.0',
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      }
+    )
+      .then((res) => {
+        clearTimeout(timeoutId)
+        if (!res.ok) {
+          resolve(fallback)
+          return
+        }
+        return res.json()
+      })
+      .then((data) => {
+        if (!data || data.error) {
+          resolve(fallback)
+          return
+        }
+        const address = buildAddressFromNominatim(data)
+        if (!address) {
+          resolve(fallback)
+          return
+        }
+        resolve(address)
+      })
+      .catch(() => {
+        clearTimeout(timeoutId)
+        resolve(fallback)
+      })
   })
 }
