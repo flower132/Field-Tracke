@@ -4,8 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Layers, X, Navigation, Battery, Gauge } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 import { useAuthStore } from '../store/authStore'
-import { getUsers, getLatestTracks, getCheckins, getTracksByUser } from '../api/supabase'
-import { getTodayRange, formatDistance, calculatePolylineDistance, formatDateTime } from '../utils/helpers'
+import { getUsers, getLatestTracks, getCheckins, getCheckinsByUser, getTracksByUser } from '../api/supabase'
+import { getTodayRange, formatDistance, formatDateTime, calculatePolylineDistance } from '../utils/helpers'
 import { getUserColor } from '../utils/constants'
 import HeatmapLayer from '../components/HeatmapLayer'
 import type { Track, User, Checkin } from '../types'
@@ -89,6 +89,16 @@ export default function MapView() {
     },
   })
 
+  const { data: myCheckins } = useQuery({
+    queryKey: ['checkins', 'mine', 'today'],
+    queryFn: async () => {
+      if (!user) return []
+      const { data } = await getCheckinsByUser(user.id)
+      return data || []
+    },
+    enabled: !isAdmin && !!user,
+  })
+
   const { data: selectedTracks } = useQuery({
     queryKey: ['tracks', selectedUserId, 'today'],
     queryFn: async () => {
@@ -98,6 +108,17 @@ export default function MapView() {
       return data || []
     },
     enabled: !!selectedUserId,
+  })
+
+  const { data: myTracks } = useQuery({
+    queryKey: ['tracks', 'mine', 'today'],
+    queryFn: async () => {
+      if (!user) return []
+      const range = getTodayRange()
+      const { data } = await getTracksByUser(user.id, range.start, range.end)
+      return data || []
+    },
+    enabled: !isAdmin && !!user,
   })
 
   const userMap = useMemo(() => {
@@ -122,13 +143,16 @@ export default function MapView() {
     return calculatePolylineDistance(selectedTracks)
   }, [selectedTracks])
 
+  // 测试人员只看自己的打卡点
+  const visibleCheckins: Checkin[] = isAdmin ? (todayCheckins || []) : (myCheckins || [])
+
   const heatPoints = useMemo(() => {
-    return (todayCheckins || []).map((c: Checkin) => ({
+    return (visibleCheckins || []).map((c: Checkin) => ({
       latitude: c.latitude,
       longitude: c.longitude,
       intensity: c.complaint_content?.trim() ? 1 : 0.3,
     }))
-  }, [todayCheckins])
+  }, [visibleCheckins])
 
   const layerOptions = [
     { key: 'realtime' as const, label: '实时位置' },
@@ -136,6 +160,11 @@ export default function MapView() {
     { key: 'checkins' as const, label: '打卡点' },
     { key: 'heat' as const, label: '热力图' },
   ]
+
+  // 测试人员默认显示轨迹和打卡点
+  const effectiveLayers = isAdmin
+    ? activeLayers
+    : ['tracks', 'checkins']
 
   return (
     <div className="relative h-full w-full">
@@ -151,7 +180,8 @@ export default function MapView() {
         />
         <MapController />
 
-        {activeLayers.includes('realtime') &&
+        {/* 管理员：实时位置（全员） */}
+        {isAdmin && effectiveLayers.includes('realtime') &&
           latestByUser.map((track, idx) => (
             <Marker
               key={track.user_id}
@@ -182,7 +212,8 @@ export default function MapView() {
             </Marker>
           ))}
 
-        {activeLayers.includes('tracks') && selectedTracks && selectedTracks.length > 1 && (
+        {/* 管理员：选中人员轨迹 */}
+        {isAdmin && effectiveLayers.includes('tracks') && selectedTracks && selectedTracks.length > 1 && (
           <Polyline
             positions={selectedTracks.map((t) => [t.latitude, t.longitude])}
             color="#3b82f6"
@@ -191,8 +222,19 @@ export default function MapView() {
           />
         )}
 
-        {activeLayers.includes('checkins') &&
-          (todayCheckins || []).map((c) => (
+        {/* 测试人员：自己的轨迹 */}
+        {!isAdmin && myTracks && myTracks.length > 1 && (
+          <Polyline
+            positions={myTracks.map((t) => [t.latitude, t.longitude])}
+            color="#3b82f6"
+            weight={3}
+            opacity={0.8}
+          />
+        )}
+
+        {/* 打卡点 */}
+        {effectiveLayers.includes('checkins') &&
+          visibleCheckins.map((c) => (
             <Marker
               key={c.id}
               position={[c.latitude, c.longitude]}
@@ -201,7 +243,7 @@ export default function MapView() {
               <Popup>
                 <div className="min-w-[180px] space-y-1 p-1">
                   <div className="font-semibold text-slate-100">打卡 #{c.sequence_no}</div>
-                  <div className="text-xs text-slate-400">{c.user?.name || '未知'}</div>
+                  {isAdmin && <div className="text-xs text-slate-400">{c.user?.name || '未知'}</div>}
                   <div className="text-xs text-slate-500">{c.address}</div>
                   <div className="text-xs text-slate-500">{formatDateTime(c.created_at)}</div>
                 </div>
@@ -209,7 +251,8 @@ export default function MapView() {
             </Marker>
           ))}
 
-        {activeLayers.includes('heat') && heatPoints.length > 0 && (
+        {/* 热力图（仅管理员） */}
+        {isAdmin && effectiveLayers.includes('heat') && heatPoints.length > 0 && (
           <HeatmapLayer
             points={heatPoints}
             radius={28}
@@ -226,70 +269,84 @@ export default function MapView() {
         )}
       </MapContainer>
 
-      {/* Layer toggle */}
-      <button
-        onClick={() => setShowLayerPanel(!showLayerPanel)}
-        className="absolute right-4 top-4 z-[1000] flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900/90 text-slate-300 shadow-lg backdrop-blur active:bg-slate-800"
-      >
-        <Layers size={20} />
-      </button>
-
-      {/* User list (admin only) */}
+      {/* Layer toggle (admin only) */}
       {isAdmin && (
-        <div className="absolute left-4 top-4 z-[1000] max-h-[50%] w-40 overflow-y-auto rounded-xl bg-slate-900/90 shadow-lg backdrop-blur">
-          <div className="p-2 text-xs font-semibold text-slate-400">在线人员</div>
-          {latestByUser.map((track, idx) => (
-            <button
-              key={track.user_id}
-              onClick={() => setSelectedUserId(track.user_id === selectedUserId ? null : track.user_id)}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                selectedUserId === track.user_id ? 'bg-primary-500/20 text-primary-300' : 'text-slate-300 hover:bg-slate-800'
-              }`}
-            >
-              <div className="h-2.5 w-2.5 rounded-full" style={{ background: getUserColor(idx) }} />
-              <span className="truncate">{track.user?.name || '未知'}</span>
-            </button>
-          ))}
-        </div>
-      )}
+        <>
+          <button
+            onClick={() => setShowLayerPanel(!showLayerPanel)}
+            className="absolute right-4 top-4 z-[1000] flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900/90 text-slate-300 shadow-lg backdrop-blur active:bg-slate-800"
+          >
+            <Layers size={20} />
+          </button>
 
-      {/* Layer panel */}
-      {showLayerPanel && (
-        <div className="absolute right-4 top-16 z-[1000] w-36 rounded-xl bg-slate-900/95 py-2 shadow-lg backdrop-blur">
-          {layerOptions.map((layer) => (
-            <button
-              key={layer.key}
-              onClick={() => useMapStore.getState().toggleLayer(layer.key)}
-              className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-slate-300"
-            >
-              {layer.label}
-              {activeLayers.includes(layer.key) && (
-                <div className="h-2 w-2 rounded-full bg-primary-400" />
-              )}
-            </button>
-          ))}
-        </div>
-      )}
+          {/* User list */}
+          <div className="absolute left-4 top-4 z-[1000] max-h-[50%] w-40 overflow-y-auto rounded-xl bg-slate-900/90 shadow-lg backdrop-blur">
+            <div className="p-2 text-xs font-semibold text-slate-400">在线人员</div>
+            {latestByUser.map((track, idx) => (
+              <button
+                key={track.user_id}
+                onClick={() => setSelectedUserId(track.user_id === selectedUserId ? null : track.user_id)}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                  selectedUserId === track.user_id ? 'bg-primary-500/20 text-primary-300' : 'text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                <div className="h-2.5 w-2.5 rounded-full" style={{ background: getUserColor(idx) }} />
+                <span className="truncate">{track.user?.name || '未知'}</span>
+              </button>
+            ))}
+          </div>
 
-      {/* Selected user detail */}
-      {selectedUserId && (
-        <div className="absolute bottom-4 left-4 right-4 z-[1000] rounded-2xl bg-slate-900/95 p-4 shadow-lg backdrop-blur">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-slate-100">
-                {userMap.get(selectedUserId)?.name || '未知人员'}
-              </div>
-              <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
-                <span className="flex items-center gap-1"><Navigation size={12} /> {todayMileage > 0 ? formatDistance(todayMileage) : '--'}</span>
-                <span className="flex items-center gap-1"><Battery size={12} /> {(latestByUser.find((t) => t.user_id === selectedUserId)?.battery || '--')}%</span>
+          {/* Layer panel */}
+          {showLayerPanel && (
+            <div className="absolute right-4 top-16 z-[1000] w-36 rounded-xl bg-slate-900/95 py-2 shadow-lg backdrop-blur">
+              {layerOptions.map((layer) => (
+                <button
+                  key={layer.key}
+                  onClick={() => useMapStore.getState().toggleLayer(layer.key)}
+                  className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-slate-300"
+                >
+                  {layer.label}
+                  {activeLayers.includes(layer.key) && (
+                    <div className="h-2 w-2 rounded-full bg-primary-400" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Selected user detail */}
+          {selectedUserId && (
+            <div className="absolute bottom-4 left-4 right-4 z-[1000] rounded-2xl border border-slate-800/50 bg-slate-900/95 p-4 shadow-lg backdrop-blur">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-slate-100">
+                    {userMap.get(selectedUserId)?.name || '未知人员'}
+                  </div>
+                  <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
+                    <span className="flex items-center gap-1"><Navigation size={12} /> {todayMileage > 0 ? formatDistance(todayMileage) : '--'}</span>
+                    <span className="flex items-center gap-1"><Battery size={12} /> {(latestByUser.find((t) => t.user_id === selectedUserId)?.battery || '--')}%</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedUserId(null)}
+                  className="rounded-lg bg-slate-800 p-1.5 text-slate-400"
+                >
+                  <X size={16} />
+                </button>
               </div>
             </div>
-            <button
-              onClick={() => setSelectedUserId(null)}
-              className="rounded-lg bg-slate-800 p-1.5 text-slate-400"
-            >
-              <X size={16} />
-            </button>
+          )}
+        </>
+      )}
+
+      {/* 测试人员：顶部标题栏 */}
+      {!isAdmin && (
+        <div className="absolute left-4 top-4 z-[1000] rounded-xl bg-slate-900/90 px-3 py-2 shadow-lg backdrop-blur">
+          <div className="text-sm font-semibold text-slate-100">我的轨迹</div>
+          <div className="text-xs text-slate-500">
+            {myTracks && myTracks.length > 0
+              ? `今日轨迹 ${formatDistance(calculatePolylineDistance(myTracks))}`
+              : '暂无轨迹数据'}
           </div>
         </div>
       )}

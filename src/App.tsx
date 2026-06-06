@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import { useRealtime } from './hooks/useRealtime'
+import { AdminGuard } from './components/RoleGuard'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -34,10 +35,32 @@ function AppRoutes() {
                 <Route path="/map" element={<MapView />} />
                 <Route path="/checkin" element={<CheckinPage />} />
                 <Route path="/tracks" element={<TrackHistory />} />
-                <Route path="/playback" element={<TrackPlayback />} />
-                <Route path="/checkins" element={<CheckinList />} />
-                <Route path="/stats" element={<StatsPage />} />
                 <Route path="/profile" element={<Profile />} />
+                {/* 管理员专属路由 */}
+                <Route
+                  path="/checkins"
+                  element={
+                    <AdminGuard>
+                      <CheckinList />
+                    </AdminGuard>
+                  }
+                />
+                <Route
+                  path="/playback"
+                  element={
+                    <AdminGuard>
+                      <TrackPlayback />
+                    </AdminGuard>
+                  }
+                />
+                <Route
+                  path="/stats"
+                  element={
+                    <AdminGuard>
+                      <StatsPage />
+                    </AdminGuard>
+                  }
+                />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>

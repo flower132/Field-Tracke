@@ -6,16 +6,15 @@ const testerNav = [
   { path: '/', icon: LayoutDashboard, label: '首页' },
   { path: '/map', icon: Map, label: '地图' },
   { path: '/checkin', icon: MapPin, label: '打卡' },
-  { path: '/tracks', icon: Route, label: '轨迹' },
   { path: '/profile', icon: User, label: '我的' },
 ]
 
 const adminNav = [
-  { path: '/', icon: LayoutDashboard, label: '首页' },
+  { path: '/', icon: LayoutDashboard, label: '总览' },
   { path: '/map', icon: Map, label: '监控' },
-  { path: '/checkins', icon: MapPin, label: '打卡' },
-  { path: '/playback', icon: Route, label: '回放' },
+  { path: '/tracks', icon: Route, label: '轨迹' },
   { path: '/stats', icon: BarChart3, label: '统计' },
+  { path: '/profile', icon: User, label: '我的' },
 ]
 
 export default function BottomNav() {
@@ -25,7 +24,7 @@ export default function BottomNav() {
   const navItems = user?.role === 'admin' ? adminNav : testerNav
 
   return (
-    <nav className="shrink-0 border-t border-slate-800 bg-slate-900/95 backdrop-blur safe-bottom">
+    <nav className="shrink-0 border-t border-slate-800/60 bg-slate-900/95 backdrop-blur safe-bottom">
       <div className="flex h-16 items-center justify-around">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path
@@ -34,7 +33,7 @@ export default function BottomNav() {
             <button
               key={item.path}
               onClick={() => navigate(item.path)}
-              className={`flex flex-col items-center justify-center gap-0.5 px-3 py-1 transition-colors ${
+              className={`flex flex-col items-center justify-center gap-0.5 px-3 py-1 transition-all active:scale-95 ${
                 isActive ? 'text-primary-400' : 'text-slate-500'
               }`}
             >

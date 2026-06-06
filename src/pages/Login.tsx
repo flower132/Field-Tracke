@@ -6,7 +6,7 @@ import { signIn, supabase } from '../api/supabase'
 
 export default function Login() {
   const navigate = useNavigate()
-  const [phone, setPhone] = useState('')
+  const [employeeId, setEmployeeId] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
@@ -16,15 +16,15 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!phone.trim() || !password.trim()) {
-      setError('请输入手机号和密码')
+    if (!employeeId.trim() || !password.trim()) {
+      setError('请输入工号和密码')
       return
     }
     setLoading(true)
     try {
-      const { data, error: signInError } = await signIn(phone, password)
+      const { data, error: signInError } = await signIn(employeeId, password)
       if (signInError || !data.user) {
-        setError(signInError?.message || '登录失败，请检查账号密码')
+        setError(signInError?.message || '登录失败，请检查工号和密码')
         setLoading(false)
         return
       }
@@ -40,14 +40,14 @@ export default function Login() {
         // users 表无记录，用 metadata 兜底
         setUser({
           id: data.user.id,
-          name: data.user.user_metadata?.name || phone,
-          phone: data.user.user_metadata?.phone || phone,
+          name: data.user.user_metadata?.name || employeeId,
+          phone: data.user.user_metadata?.phone || employeeId,
           role: data.user.user_metadata?.role || 'tester',
           status: 'online',
           created_at: data.user.created_at || new Date().toISOString(),
         })
       }
-      // 登录成功，跳转到首页
+      // 登录成功，跳转到首页（Dashboard 会根据角色自动渲染）
       navigate('/', { replace: true })
     } catch (err: any) {
       setError(err.message || '登录失败')
@@ -68,12 +68,12 @@ export default function Login() {
 
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-400">手机号</label>
+          <label className="mb-1 block text-sm font-medium text-slate-400">工号</label>
           <input
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="请输入手机号"
+            type="text"
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+            placeholder="请输入工号"
             className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
           />
         </div>
@@ -112,7 +112,7 @@ export default function Login() {
       </form>
 
       <p className="mt-6 text-xs text-slate-600">
-        测试账号: admin / 123456 或 tester / 123456
+        外场投诉测试管理平台
       </p>
     </div>
   )

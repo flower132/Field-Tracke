@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore'
 import { useLocationStore } from '../store/locationStore'
 import { createCheckin, getNextSequenceNo, uploadPhoto } from '../api/supabase'
 import { getAddressFromCoords } from '../utils/helpers'
+
 export default function CheckinPage() {
   const { user } = useAuthStore()
   const { latitude, longitude } = useLocationStore()
@@ -124,7 +125,7 @@ export default function CheckinPage() {
 
       {step === 'location' && (
         <div className="mt-6 space-y-4">
-          <div className="rounded-2xl bg-slate-900 p-6 text-center">
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-6 text-center">
             <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-primary-500/10 text-primary-400">
               <MapPin size={36} />
             </div>
@@ -146,7 +147,7 @@ export default function CheckinPage() {
 
       {step === 'form' && (
         <div className="mt-6 space-y-4">
-          <div>
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
             <label className="mb-1 block text-sm font-medium text-slate-400">投诉标题</label>
             <input
               type="text"
@@ -157,7 +158,7 @@ export default function CheckinPage() {
             />
           </div>
 
-          <div>
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
             <label className="mb-1 block text-sm font-medium text-slate-400">投诉内容</label>
             <textarea
               value={form.complaint_content}
@@ -168,7 +169,7 @@ export default function CheckinPage() {
             />
           </div>
 
-          <div>
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
             <label className="mb-1 block text-sm font-medium text-slate-400">测试结果</label>
             <textarea
               value={form.test_result}
@@ -179,7 +180,7 @@ export default function CheckinPage() {
             />
           </div>
 
-          <div>
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
             <label className="mb-1 block text-sm font-medium text-slate-400">处理结果</label>
             <textarea
               value={form.solution_result}
@@ -190,7 +191,7 @@ export default function CheckinPage() {
             />
           </div>
 
-          <div>
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
             <label className="mb-1 block text-sm font-medium text-slate-400">备注</label>
             <textarea
               value={form.remark}
@@ -202,7 +203,7 @@ export default function CheckinPage() {
           </div>
 
           {/* Photos */}
-          <div>
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
             <label className="mb-2 block text-sm font-medium text-slate-400">现场照片 ({photos.length}/9)</label>
             <PhotoProvider
               toolbarRender={({ images, index }) => {

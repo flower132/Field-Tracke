@@ -1,6 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
-import { MapContainer, TileLayer, useMap } from 'react-leaflet'
-import { Users, Route, MapPin, ClipboardCheck, Layers } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Users, Route, MapPin, ClipboardCheck } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getUsers, getCheckins, getTracks } from '../api/supabase'
 import {
@@ -11,32 +10,10 @@ import {
   calculateOnlineMinutes,
 } from '../utils/helpers'
 import { getUserColor } from '../utils/constants'
-import HeatmapLayer from '../components/HeatmapLayer'
-import type { UserStats, Track, Checkin } from '../types'
-
-const DARK_TILE_URL =
-  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-
-function MapBounds({ points }: { points: Array<{ latitude: number; longitude: number }> }) {
-  const map = useMap()
-
-  useEffect(() => {
-    if (!map || points.length === 0) return
-    const bounds = points.map((p) => [p.latitude, p.longitude] as [number, number])
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14, animate: false })
-  }, [map, points])
-
-  return null
-}
-
-function complaintIntensity(c: Checkin): number {
-  const content = c.complaint_content?.trim()
-  return content ? 1 : 0.3
-}
+import type { UserStats } from '../types'
 
 export default function StatsPage() {
   const [period, setPeriod] = useState<'7days' | '30days' | 'all'>('7days')
-  const [showHeat, setShowHeat] = useState(true)
 
   const { data: users } = useQuery({
     queryKey: ['users'],
@@ -87,7 +64,7 @@ export default function StatsPage() {
   })
 
   const tracksByUser = useMemo(() => {
-    const map = new Map<string, Track[]>()
+    const map = new Map<string, import('../types').Track[]>()
     for (const t of tracks || []) {
       const arr = map.get(t.user_id) || []
       arr.push(t)
@@ -119,14 +96,6 @@ export default function StatsPage() {
     })
   }, [users, checkins, tracksByUser])
 
-  const heatPoints = useMemo(() => {
-    return (checkins || []).map((c) => ({
-      latitude: c.latitude,
-      longitude: c.longitude,
-      intensity: complaintIntensity(c),
-    }))
-  }, [checkins])
-
   const periodOptions = [
     { key: '7days' as const, label: '最近7天' },
     { key: '30days' as const, label: '最近30天' },
@@ -135,41 +104,60 @@ export default function StatsPage() {
 
   return (
     <div className="h-full overflow-y-auto px-4 pb-20 pt-4">
-      <h1 className="text-xl font-bold text-slate-100">统计分析</h1>
-      <p className="text-sm text-slate-500">运营数据概览</p>
-
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-slate-900 p-4">
-          <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
-            <Users size={18} />
-          </div>
-          <div className="text-2xl font-bold text-slate-100">{stats.onlineCount}</div>
-          <div className="text-xs text-slate-500">在线人员</div>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-100">统计分析</h1>
+          <p className="text-sm text-slate-500">运营数据概览</p>
         </div>
-        <div className="rounded-2xl bg-slate-900 p-4">
-          <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-primary-500/10 text-primary-400">
-            <Route size={18} />
-          </div>
-          <div className="text-2xl font-bold text-slate-100">{formatDistance(stats.totalMileage)}</div>
-          <div className="text-xs text-slate-500">总里程</div>
-        </div>
-        <div className="rounded-2xl bg-slate-900 p-4">
-          <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
-            <MapPin size={18} />
-          </div>
-          <div className="text-2xl font-bold text-slate-100">{stats.totalCheckins}</div>
-          <div className="text-xs text-slate-500">打卡总数</div>
-        </div>
-        <div className="rounded-2xl bg-slate-900 p-4">
-          <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400">
-            <ClipboardCheck size={18} />
-          </div>
-          <div className="text-2xl font-bold text-slate-100">{stats.totalComplaints}</div>
-          <div className="text-xs text-slate-500">处理投诉</div>
+        <div className="flex gap-1">
+          {periodOptions.map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setPeriod(opt.key)}
+              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                period === opt.key ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="mt-6 rounded-2xl bg-slate-900 p-4">
+      {/* 统计卡片 2x2 */}
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
+          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
+            <Users size={18} />
+          </div>
+          <div className="text-2xl font-bold text-slate-100">{stats.onlineCount}</div>
+          <div className="mt-0.5 text-xs text-slate-500">在线人员</div>
+        </div>
+        <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
+          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-primary-500/10 text-primary-400">
+            <Route size={18} />
+          </div>
+          <div className="text-2xl font-bold text-slate-100">{formatDistance(stats.totalMileage)}</div>
+          <div className="mt-0.5 text-xs text-slate-500">总里程</div>
+        </div>
+        <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
+          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
+            <MapPin size={18} />
+          </div>
+          <div className="text-2xl font-bold text-slate-100">{stats.totalCheckins}</div>
+          <div className="mt-0.5 text-xs text-slate-500">打卡总数</div>
+        </div>
+        <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
+          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-rose-500/10 text-rose-400">
+            <ClipboardCheck size={18} />
+          </div>
+          <div className="text-2xl font-bold text-slate-100">{stats.totalComplaints}</div>
+          <div className="mt-0.5 text-xs text-slate-500">处理投诉</div>
+        </div>
+      </div>
+
+      {/* 人员统计 */}
+      <div className="mt-5 rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-slate-200">人员统计</h2>
         </div>
@@ -188,72 +176,8 @@ export default function StatsPage() {
               </div>
             </div>
           ))}
-        </div>
-      </div>
-
-      <div className="mt-6 rounded-2xl bg-slate-900 p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-200">投诉热力图</h2>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowHeat((v) => !v)}
-              className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                showHeat ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-400'
-              }`}
-              title="切换热力图层"
-            >
-              <Layers size={12} />
-              热力图
-            </button>
-            <div className="flex gap-1">
-              {periodOptions.map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => setPeriod(opt.key)}
-                  className={`rounded-md px-2 py-1 text-xs font-medium ${
-                    period === opt.key ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="relative h-80 overflow-hidden rounded-xl">
-          <MapContainer
-            center={[39.9042, 116.4074]}
-            zoom={11}
-            className="h-full w-full"
-            zoomControl={false}
-          >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attribution">CARTO</a>'
-              url={DARK_TILE_URL}
-              subdomains="abcd"
-              maxZoom={19}
-            />
-            <MapBounds points={heatPoints.length > 0 ? heatPoints : [{ latitude: 39.9042, longitude: 116.4074 }]} />
-            {showHeat && heatPoints.length > 0 && (
-              <HeatmapLayer
-                points={heatPoints}
-                radius={28}
-                blur={18}
-                minOpacity={0.25}
-                gradient={{
-                  0.2: '#3b82f6',
-                  0.45: '#10b981',
-                  0.7: '#f59e0b',
-                  0.9: '#ef4444',
-                  1.0: '#7f1d1d',
-                }}
-              />
-            )}
-          </MapContainer>
-          {heatPoints.length === 0 && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm text-slate-500">
-              暂无数据
-            </div>
+          {userStats.length === 0 && (
+            <p className="py-4 text-center text-sm text-slate-600">暂无人员数据</p>
           )}
         </div>
       </div>
