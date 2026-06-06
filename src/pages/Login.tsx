@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { MapPin, Eye, EyeOff } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
-import { signInWithPhone } from '../api/supabase'
+import { signIn, supabase } from '../api/supabase'
 
 export default function Login() {
+  const navigate = useNavigate()
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -20,29 +22,33 @@ export default function Login() {
     }
     setLoading(true)
     try {
-      const { data, error: signInError } = await signInWithPhone(phone, password)
+      const { data, error: signInError } = await signIn(phone, password)
       if (signInError || !data.user) {
-        // 模拟登录 fallback（开发环境）
-        const mockUser = {
-          id: 'mock-' + phone,
-          name: phone,
-          phone,
-          role: phone.includes('admin') ? 'admin' as const : 'tester' as const,
-          status: 'online' as const,
-          created_at: new Date().toISOString(),
-        }
-        setUser(mockUser)
+        setError(signInError?.message || '登录失败，请检查账号密码')
+        setLoading(false)
         return
       }
-      // 实际项目中从 users 表获取用户信息
-      setUser({
-        id: data.user.id,
-        name: data.user.user_metadata?.name || phone,
-        phone,
-        role: data.user.user_metadata?.role || 'tester',
-        status: 'online',
-        created_at: data.user.created_at || new Date().toISOString(),
-      })
+      // 从 users 表读取完整用户信息
+      const { data: userData } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id)
+        .single()
+      if (userData) {
+        setUser(userData as any)
+      } else {
+        // users 表无记录，用 metadata 兜底
+        setUser({
+          id: data.user.id,
+          name: data.user.user_metadata?.name || phone,
+          phone: data.user.user_metadata?.phone || phone,
+          role: data.user.user_metadata?.role || 'tester',
+          status: 'online',
+          created_at: data.user.created_at || new Date().toISOString(),
+        })
+      }
+      // 登录成功，跳转到首页
+      navigate('/', { replace: true })
     } catch (err: any) {
       setError(err.message || '登录失败')
     } finally {

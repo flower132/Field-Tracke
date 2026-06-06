@@ -13,11 +13,13 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 })
 
 // Auth
-export async function signInWithPhone(phone: string, password: string) {
-  // 使用手机号+密码登录（需先在 Supabase Auth 中配置）
-  // 这里简化实现，实际项目中可能需要 OTP 验证
+export async function signIn(emailOrPhone: string, password: string) {
+  // 判断是邮箱还是手机号，手机号自动补上 @fieldtracker.local
+  const email = emailOrPhone.includes('@')
+    ? emailOrPhone
+    : `${emailOrPhone}@fieldtracker.local`
   const { data, error } = await supabase.auth.signInWithPassword({
-    email: `${phone}@fieldtracker.local`,
+    email,
     password,
   })
   return { data, error }
