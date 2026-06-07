@@ -58,7 +58,8 @@ export default function Profile() {
     queryKey: ['checkins', 'mine', 'today'],
     queryFn: async () => {
       if (!user) return []
-      const { data } = await getCheckinsByUser(user.id)
+      const range = getTodayRange()
+      const { data } = await getCheckinsByUser(user.id, range.start, range.end)
       return data || []
     },
     enabled: !!user && !isAdmin,

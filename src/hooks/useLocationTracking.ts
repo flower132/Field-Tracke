@@ -153,7 +153,7 @@ export function useLocationTracking() {
       const result = evaluatePosition(position)
 
       // 始终更新UI状态（让首页能看到最新位置和精度）
-      setLocation(result.lat, result.lng, result.speedKmh, result.accuracy)
+      setLocation(result.lat, result.lng, result.speedKmh, result.accuracy, result.isStatic)
 
       // 2. 精度太差：只显示不上传
       if (result.accuracy > ACCURACY_POOR) {

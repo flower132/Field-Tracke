@@ -6,7 +6,6 @@ import {
   Popup,
   Polyline,
   useMap,
-  useMapEvent,
 } from 'react-leaflet'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -69,14 +68,17 @@ function createUserIcon(color: string) {
   })
 }
 
+const CIRCLED_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳']
+
 function createCheckinIcon(seq: number, isComplaint: boolean) {
   const bg = isComplaint ? '#ef4444' : '#f59e0b'
+  const label = CIRCLED_NUMBERS[seq - 1] || seq
   return L.divIcon({
     className: 'custom-div-icon',
-    html: `<div style="background:${bg};color:#fff;font-weight:700;font-size:11px;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);">${seq}</div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    popupAnchor: [0, -14],
+    html: `<div style="background:${bg};color:#fff;font-weight:700;font-size:12px;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);">${label}</div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -16],
   })
 }
 
@@ -94,17 +96,25 @@ function MapInitializer() {
     }
   }, [map])
 
-  useMapEvent('moveend', () => {
-    // 确保地图尺寸正确
-  })
-
   useEffect(() => {
-    const handle = () => setTimeout(() => map.invalidateSize(), 100)
+    // 路由切换/页面显示后重新计算地图尺寸
+    const handle = () => {
+      requestAnimationFrame(() => {
+        setTimeout(() => map.invalidateSize(), 200)
+      })
+    }
     window.addEventListener('resize', handle)
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) handle()
     })
-    return () => window.removeEventListener('resize', handle)
+    // 额外兜底：mount 后再次触发
+    const t1 = setTimeout(() => map.invalidateSize(), 300)
+    const t2 = setTimeout(() => map.invalidateSize(), 800)
+    return () => {
+      window.removeEventListener('resize', handle)
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
   }, [map])
 
   return null
@@ -311,7 +321,8 @@ export default function MapView() {
     queryKey: ['checkins', 'mine', 'today'],
     queryFn: async () => {
       if (!user) return []
-      const { data } = await getCheckinsByUser(user.id)
+      const range = getTodayRange()
+      const { data } = await getCheckinsByUser(user.id, range.start, range.end)
       return data || []
     },
     enabled: !isAdmin && !!user,

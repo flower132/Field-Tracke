@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { ChevronLeft, MapPin, ClipboardCheck, ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronLeft, MapPin, ClipboardCheck, ChevronDown, ChevronUp, Route } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useQuery } from '@tanstack/react-query'
 import { getTracksByUser, getCheckinsByUser } from '../api/supabase'
@@ -10,11 +10,91 @@ import {
   calculatePolylineDistance,
   calculateOnlineMinutes,
   formatDateTime,
+  formatDate,
   getDayOfWeekLabel,
   groupByDay,
 } from '../utils/helpers'
 import PeriodOverviewCard from '../components/PeriodOverviewCard'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+
+const CIRCLED_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳']
+
+function createCheckinIcon(seq: number, isComplaint: boolean) {
+  const bg = isComplaint ? '#ef4444' : '#f59e0b'
+  const label = CIRCLED_NUMBERS[seq - 1] || seq
+  return L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div style="background:${bg};color:#fff;font-weight:700;font-size:11px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);">${label}</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -14],
+  })
+}
+
+function MiniTrackMap({
+  tracks,
+  checkins,
+  height = 200,
+}: {
+  tracks: Array<{ latitude: number; longitude: number; created_at?: string }>
+  checkins: Array<{ id: string; latitude: number; longitude: number; sequence_no: number; complaint_content?: string; created_at?: string }>
+  height?: number
+}) {
+  const center = useMemo(() => {
+    if (tracks.length > 0) return [tracks[0].latitude, tracks[0].longitude] as [number, number]
+    if (checkins.length > 0) return [checkins[0].latitude, checkins[0].longitude] as [number, number]
+    return [39.9042, 116.4074] as [number, number]
+  }, [tracks, checkins])
+
+  return (
+    <div className="relative overflow-hidden rounded-xl" style={{ height }}>
+      <MapContainer
+        center={center}
+        zoom={14}
+        className="h-full w-full"
+        zoomControl={false}
+        scrollWheelZoom={false}
+        dragging={false}
+        doubleClickZoom={false}
+        touchZoom={false}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        {tracks.length > 1 && (
+          <Polyline
+            positions={tracks.map((t) => [t.latitude, t.longitude])}
+            color="#3b82f6"
+            weight={2.5}
+            opacity={0.8}
+          />
+        )}
+        {checkins.map((c) => (
+          <Marker
+            key={c.id}
+            position={[c.latitude, c.longitude]}
+            icon={createCheckinIcon(c.sequence_no, !!c.complaint_content?.trim())}
+          >
+            <Popup>
+              <div className="text-xs text-slate-500">
+                {formatDateTime(c.created_at || '')}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+      {tracks.length === 0 && checkins.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm text-slate-500">
+          暂无轨迹数据
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function PeriodDetailPage() {
   const { period } = useParams<{ period: 'today' | 'week' | 'month' }>()
@@ -70,6 +150,17 @@ export default function PeriodDetailPage() {
   const groupedByDay = groupByDay(checkins || [])
   const sortedDays = Object.keys(groupedByDay).sort().reverse()
 
+  const tracksByDay = useMemo(() => {
+    if (!tracks || tracks.length === 0) return {}
+    const groups: Record<string, typeof tracks> = {}
+    for (const t of tracks) {
+      const day = formatDate(t.created_at)
+      if (!groups[day]) groups[day] = []
+      groups[day].push(t)
+    }
+    return groups
+  }, [tracks])
+
   const toggleDay = (day: string) => {
     setExpandedDays((prev) => {
       const next = new Set(prev)
@@ -101,9 +192,12 @@ export default function PeriodDetailPage() {
         complaints={totalComplaints}
       />
 
-      {/* 今日详情：轨迹 + 打卡列表 */}
+      {/* 今日详情：轨迹地图 + 打卡列表 */}
       {period === 'today' && (
         <div className="mt-4 space-y-4">
+          <h2 className="text-sm font-semibold text-slate-300">今日轨迹</h2>
+          <MiniTrackMap tracks={tracks || []} checkins={checkins || []} height={220} />
+
           <h2 className="text-sm font-semibold text-slate-300">打卡记录</h2>
           {(checkins || []).length === 0 && (
             <div className="py-8 text-center text-sm text-slate-600">暂无打卡记录</div>
@@ -124,7 +218,10 @@ export default function PeriodDetailPage() {
                 <div className="text-xs text-slate-600">{formatDateTime(c.created_at)}</div>
               </div>
               {c.complaint_content && (
-                <div className="mt-2 text-xs text-slate-400">{c.complaint_content}</div>
+                <div className="mt-2 text-xs text-rose-400">投诉：{c.complaint_content}</div>
+              )}
+              {c.solution_result && (
+                <div className="mt-1 text-xs text-emerald-400">处理：{c.solution_result}</div>
               )}
             </div>
           ))}
@@ -167,21 +264,46 @@ export default function PeriodDetailPage() {
                   )}
                 </button>
                 {isExpanded && (
-                  <div className="space-y-2 border-t border-slate-800/50 px-4 py-3">
-                    {dayCheckins.map((c) => (
-                      <div key={c.id} className="flex items-start gap-2">
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 text-[10px] font-bold">
-                          {c.sequence_no}
+                  <div className="space-y-3 border-t border-slate-800/50 px-4 py-3">
+                    {/* 当天轨迹地图 */}
+                    {(() => {
+                      const dayTracks = tracksByDay[day] || []
+                      if (dayTracks.length > 1 || dayCheckins.length > 0) {
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                              <Route size={10} />
+                              {dayTracks.length > 1
+                                ? `轨迹 ${(calculatePolylineDistance(dayTracks) / 1000).toFixed(1)}km`
+                                : '轨迹'}
+                            </div>
+                            <MiniTrackMap tracks={dayTracks} checkins={dayCheckins} height={160} />
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
+
+                    {/* 当天打卡列表 */}
+                    <div className="space-y-2">
+                      {dayCheckins.map((c) => (
+                        <div key={c.id} className="flex items-start gap-2">
+                          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-400 text-[10px] font-bold">
+                            {c.sequence_no}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs text-slate-300">{c.title || `打卡 #${c.sequence_no}`}</div>
+                            <div className="text-[10px] text-slate-600">{c.address}</div>
+                            {c.complaint_content && (
+                              <div className="mt-0.5 text-[10px] text-rose-400">投诉：{c.complaint_content}</div>
+                            )}
+                            {c.solution_result && (
+                              <div className="mt-0.5 text-[10px] text-emerald-400">处理：{c.solution_result}</div>
+                            )}
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs text-slate-300">{c.title || `打卡 #${c.sequence_no}`}</div>
-                          <div className="text-[10px] text-slate-600">{c.address}</div>
-                          {c.complaint_content && (
-                            <div className="mt-0.5 text-[10px] text-slate-500">{c.complaint_content}</div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

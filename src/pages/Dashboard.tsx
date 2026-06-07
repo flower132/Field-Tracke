@@ -60,10 +60,12 @@ function GpsStatusBadge({
   accuracy,
   speed,
   isTracking,
+  isStationary,
 }: {
   accuracy: number | null
   speed: number | null
   isTracking: boolean
+  isStationary?: boolean
 }) {
   const status = getGpsStatus(accuracy, speed, isTracking)
 
@@ -80,7 +82,7 @@ function GpsStatusBadge({
   return (
     <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${c.color}`}>
       <Icon size={12} />
-      {c.label}
+      {isStationary ? '静止中' : c.label}
       {accuracy !== null && (
         <span className="opacity-70">· ±{Math.round(accuracy)}m</span>
       )}
@@ -113,6 +115,9 @@ function MiniCheckinCard({
         <div className="mt-0.5 truncate text-xs text-slate-500">{checkin.address}</div>
         {checkin.complaint_content && (
           <div className="mt-1 truncate text-xs text-slate-400">{checkin.complaint_content}</div>
+        )}
+        {checkin.solution_result && (
+          <div className="mt-1 truncate text-xs text-emerald-400">{checkin.solution_result}</div>
         )}
         <div className="mt-1.5 flex items-center gap-2">
           {checkin.test_result && (
@@ -150,7 +155,7 @@ function MiniCheckinCard({
 /* --------------------------- 测试人员首页 --------------------------- */
 function TesterDashboard() {
   const { user } = useAuthStore()
-  const { latitude, longitude, speed, accuracy, isTracking } = useLocationStore()
+  const { latitude, longitude, speed, accuracy, isTracking, isStationary } = useLocationStore()
   const queryClient = useQueryClient()
   const { pendingCount, syncStatus } = useOfflineSync()
   const [editingCheckin, setEditingCheckin] = useState<Checkin | null>(null)
@@ -170,7 +175,8 @@ function TesterDashboard() {
     queryKey: ['checkins', 'mine', 'today'],
     queryFn: async () => {
       if (!user) return []
-      const { data } = await getCheckinsByUser(user.id)
+      const range = getTodayRange()
+      const { data } = await getCheckinsByUser(user.id, range.start, range.end)
       return data || []
     },
     enabled: !!user,
@@ -252,7 +258,7 @@ function TesterDashboard() {
       {isTracking && (
         <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div className="flex items-center justify-between">
-            <GpsStatusBadge accuracy={accuracy} speed={speed} isTracking={isTracking} />
+            <GpsStatusBadge accuracy={accuracy} speed={speed} isTracking={isTracking} isStationary={isStationary} />
             <div className="flex items-center gap-4 text-xs text-slate-400">
               {accuracy !== null && (
                 <span className="flex items-center gap-1">
@@ -263,11 +269,17 @@ function TesterDashboard() {
               {speed !== null && (
                 <span className="flex items-center gap-1">
                   <Navigation size={12} />
-                  {speed.toFixed(1)} km/h
+                  {isStationary ? '0.0' : speed.toFixed(1)} km/h
                 </span>
               )}
             </div>
           </div>
+          {latitude && longitude && (
+            <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-600">
+              <MapPin size={10} />
+              {latitude.toFixed(5)}, {longitude.toFixed(5)}
+            </div>
+          )}
         </div>
       )}
 

@@ -328,7 +328,7 @@ export default function CheckinPage() {
                 {/* 添加照片按钮组 */}
                 {photos.length < 9 && (
                   <div className="col-span-1 flex gap-2">
-                    {/* 1. 拍照按钮 */}
+                    {/* 拍照按钮 */}
                     <button
                       onClick={() => cameraInputRef.current?.click()}
                       disabled={compressing}
@@ -337,17 +337,15 @@ export default function CheckinPage() {
                       <Camera size={20} />
                       <span className="mt-1 text-[10px]">拍照</span>
                     </button>
-                    {/* 1. 相册按钮（只剩1个空位时隐藏） */}
-                    {photos.length < 8 && (
-                      <button
-                        onClick={() => albumInputRef.current?.click()}
-                        disabled={compressing}
-                        className="flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 text-slate-500 active:bg-slate-800"
-                      >
-                        <Images size={20} />
-                        <span className="mt-1 text-[10px]">相册</span>
-                      </button>
-                    )}
+                    {/* 相册按钮 */}
+                    <button
+                      onClick={() => albumInputRef.current?.click()}
+                      disabled={compressing}
+                      className="flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 text-slate-500 active:bg-slate-800"
+                    >
+                      <Images size={20} />
+                      <span className="mt-1 text-[10px]">相册</span>
+                    </button>
                   </div>
                 )}
               </div>
