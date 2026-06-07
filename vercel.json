@@ -3,8 +3,7 @@
   "outputDirectory": "dist",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "routes": [
-    { "handle": "filesystem" },
-    { "src": "/.*", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/((?!assets|favicon|icon|manifest|sw|workbox).*)", "destination": "/index.html" }
   ]
 }
