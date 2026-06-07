@@ -1,17 +1,26 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useAuthStore } from '../store/authStore'
 
 export function useAuth() {
   const { user, isLoading, isAuthenticated, loadUser, logout } = useAuthStore()
+  const hasRun = useRef(false)
 
   useEffect(() => {
-    // 已有用户且未在加载中，直接跳过
-    if (isAuthenticated && user && !isLoading) return
-    // 正在加载中或需要加载，且未认证
-    if (!isAuthenticated && isLoading) {
-      loadUser()
+    // 已经认证且有用户，直接返回
+    if (isAuthenticated && user) {
+      if (isLoading) {
+        useAuthStore.setState({ isLoading: false })
+      }
+      return
     }
-  }, [isAuthenticated, isLoading, loadUser])
+
+    // 防止 StrictMode 下执行两次
+    if (hasRun.current) return
+    hasRun.current = true
+
+    // 首次加载：通过 supabase.getSession() 同步获取 session
+    loadUser()
+  }, [])
 
   return { user, isLoading, isAuthenticated, logout }
 }

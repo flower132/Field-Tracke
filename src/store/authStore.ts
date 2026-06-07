@@ -12,6 +12,19 @@ interface AuthState {
   logout: () => Promise<void>
 }
 
+// 初始化时通过 onAuthStateChange 同步 session 状态
+// 这样刷新页面时 Supabase 会自动恢复 session，无需手动轮询
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+    getCurrentUser().then((user) => {
+      useAuthStore.getState().setUser(user)
+    })
+  }
+  if (event === 'SIGNED_OUT') {
+    useAuthStore.getState().setUser(null)
+  }
+})
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({

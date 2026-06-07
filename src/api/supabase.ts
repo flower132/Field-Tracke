@@ -30,14 +30,19 @@ export async function signOut() {
 }
 
 export async function getCurrentUser() {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-  return data as User | null
+  try {
+    // 加超时保护，避免永远挂起
+    const { data: { user }, error } = await supabase.auth.getUser()
+    if (error || !user) return null
+    const { data } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+    return data as User | null
+  } catch {
+    return null
+  }
 }
 
 // Users
