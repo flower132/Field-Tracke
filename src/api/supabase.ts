@@ -148,6 +148,32 @@ export async function createCheckin(checkin: Omit<Checkin, 'id' | 'created_at' |
   return { data: data as Checkin | null, error }
 }
 
+export async function updateCheckin(
+  id: string,
+  updates: Partial<Pick<Checkin, 'complaint_content' | 'test_result' | 'solution_result' | 'remark'>>,
+  editorId: string
+) {
+  const { data: existing } = await supabase
+    .from('checkins')
+    .select('edit_count')
+    .eq('id', id)
+    .single()
+
+  const { data, error } = await supabase
+    .from('checkins')
+    .update({
+      ...updates,
+      edit_count: (existing?.edit_count || 0) + 1,
+      last_edited_at: new Date().toISOString(),
+      last_edited_by: editorId,
+    })
+    .eq('id', id)
+    .select('*, photos(*)')
+    .single()
+
+  return { data: data as Checkin | null, error }
+}
+
 // Photos
 export async function uploadPhoto(file: File, checkinId: string) {
   const ext = file.name.split('.').pop()

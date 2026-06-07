@@ -1,8 +1,9 @@
 import { create } from 'zustand'
-import type { MapLayer } from '../types'
+import type { MapLayer, BaseMapType } from '../types'
 
 interface MapState {
   activeLayers: MapLayer[]
+  baseMap: BaseMapType
   selectedUserId: string | null
   selectedDate: string
   playbackDate: string
@@ -10,7 +11,9 @@ interface MapState {
   isPlaying: boolean
   playbackSpeed: number
   followMode: boolean
+  showLegend: boolean
   toggleLayer: (layer: MapLayer) => void
+  setBaseMap: (map: BaseMapType) => void
   setSelectedUserId: (id: string | null) => void
   setSelectedDate: (date: string) => void
   setPlaybackDate: (date: string) => void
@@ -18,10 +21,12 @@ interface MapState {
   setIsPlaying: (playing: boolean) => void
   setPlaybackSpeed: (speed: number) => void
   setFollowMode: (follow: boolean) => void
+  toggleLegend: () => void
 }
 
 export const useMapStore = create<MapState>((set) => ({
   activeLayers: ['realtime'],
+  baseMap: 'osm',
   selectedUserId: null,
   selectedDate: new Date().toISOString().split('T')[0],
   playbackDate: new Date().toISOString().split('T')[0],
@@ -29,12 +34,14 @@ export const useMapStore = create<MapState>((set) => ({
   isPlaying: false,
   playbackSpeed: 1,
   followMode: false,
+  showLegend: true,
   toggleLayer: (layer) =>
     set((state) => ({
       activeLayers: state.activeLayers.includes(layer)
         ? state.activeLayers.filter((l) => l !== layer)
         : [...state.activeLayers, layer],
     })),
+  setBaseMap: (baseMap) => set({ baseMap }),
   setSelectedUserId: (id) => set({ selectedUserId: id }),
   setSelectedDate: (date) => set({ selectedDate: date }),
   setPlaybackDate: (date) => set({ playbackDate: date }),
@@ -42,4 +49,5 @@ export const useMapStore = create<MapState>((set) => ({
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
   setFollowMode: (follow) => set({ followMode: follow }),
+  toggleLegend: () => set((state) => ({ showLegend: !state.showLegend })),
 }))

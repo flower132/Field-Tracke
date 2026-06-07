@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
-import { List, Map, Search } from 'lucide-react'
+import { List, Map, Search, ChevronLeft, ChevronRight, Edit3 } from 'lucide-react'
 import { PhotoProvider, PhotoView } from 'react-photo-view'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../store/authStore'
 import { getCheckins } from '../api/supabase'
 import { getTodayRange, formatDateTime } from '../utils/helpers'
+import CheckinEditModal from '../components/CheckinEditModal'
 import type { Checkin } from '../types'
 import L from 'leaflet'
 
@@ -19,13 +20,17 @@ function createCheckinIcon(seq: number) {
   })
 }
 
+const PAGE_SIZE = 20
+
 export default function CheckinList() {
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [editingCheckin, setEditingCheckin] = useState<Checkin | null>(null)
 
-  const { data: checkins } = useQuery({
+  const { data: checkins, refetch } = useQuery({
     queryKey: ['checkins', 'all'],
     queryFn: async () => {
       const range = getTodayRange()
@@ -44,6 +49,14 @@ export default function CheckinList() {
     )
   })
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  const handleSaved = () => {
+    refetch()
+    setEditingCheckin(null)
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-slate-800 bg-slate-900 px-4 py-3">
@@ -54,7 +67,10 @@ export default function CheckinList() {
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setPage(1)
+              }}
               placeholder="搜索标题、地址或人员"
               className="w-full rounded-lg border border-slate-700 bg-slate-800 py-2 pl-9 pr-3 text-sm text-slate-100 outline-none placeholder:text-slate-600"
             />
@@ -72,10 +88,15 @@ export default function CheckinList() {
       <div className="flex-1 overflow-y-auto">
         {viewMode === 'list' ? (
           <div className="divide-y divide-slate-800">
-            {filtered.map((checkin) => (
-              <CheckinCard key={checkin.id} checkin={checkin} isAdmin={isAdmin} />
+            {paginated.map((checkin) => (
+              <CheckinCard
+                key={checkin.id}
+                checkin={checkin}
+                isAdmin={isAdmin}
+                onEdit={() => setEditingCheckin(checkin)}
+              />
             ))}
-            {filtered.length === 0 && (
+            {paginated.length === 0 && (
               <div className="py-12 text-center text-sm text-slate-600">暂无打卡记录</div>
             )}
           </div>
@@ -100,11 +121,49 @@ export default function CheckinList() {
           </MapContainer>
         )}
       </div>
+
+      {/* 分页 */}
+      {viewMode === 'list' && totalPages > 1 && (
+        <div className="shrink-0 flex items-center justify-between border-t border-slate-800 bg-slate-900 px-4 py-2">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-400 disabled:opacity-30"
+          >
+            <ChevronLeft size={14} /> 上一页
+          </button>
+          <span className="text-xs text-slate-500">{page} / {totalPages}</span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-400 disabled:opacity-30"
+          >
+            下一页 <ChevronRight size={14} />
+          </button>
+        </div>
+      )}
+
+      {editingCheckin && (
+        <CheckinEditModal
+          checkin={editingCheckin}
+          isOpen={!!editingCheckin}
+          onClose={() => setEditingCheckin(null)}
+          onSaved={handleSaved}
+        />
+      )}
     </div>
   )
 }
 
-function CheckinCard({ checkin, isAdmin }: { checkin: Checkin; isAdmin: boolean }) {
+function CheckinCard({
+  checkin,
+  isAdmin,
+  onEdit,
+}: {
+  checkin: Checkin
+  isAdmin: boolean
+  onEdit: () => void
+}) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -153,36 +212,18 @@ function CheckinCard({ checkin, isAdmin }: { checkin: Checkin; isAdmin: boolean 
               <p className="mt-0.5 text-slate-300">{checkin.remark}</p>
             </div>
           )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit()
+            }}
+            className="flex items-center gap-1 rounded-lg bg-slate-700/50 px-3 py-1.5 text-xs text-slate-400"
+          >
+            <Edit3 size={12} />
+            编辑
+          </button>
           {checkin.photos && checkin.photos.length > 0 && (
-            <PhotoProvider
-              toolbarRender={({ images, index }) => {
-                const src = images[index]?.src
-                return (
-                  <div className="flex items-center gap-3 text-white">
-                    <span className="text-sm opacity-80">
-                      {index + 1} / {images.length}
-                    </span>
-                    {src && (
-                      <button
-                        onClick={() => {
-                          const a = document.createElement('a')
-                          a.href = src
-                          a.download = src.split('/').pop() || 'image.jpg'
-                          a.target = '_blank'
-                          document.body.appendChild(a)
-                          a.click()
-                          document.body.removeChild(a)
-                        }}
-                        className="text-sm opacity-80 hover:opacity-100"
-                        title="下载图片"
-                      >
-                        下载
-                      </button>
-                    )}
-                  </div>
-                )
-              }}
-            >
+            <PhotoProvider>
               <div className="flex gap-2 overflow-x-auto pt-1">
                 {checkin.photos.map((p) => (
                   <PhotoView key={p.id} src={p.photo_url}>
@@ -190,6 +231,7 @@ function CheckinCard({ checkin, isAdmin }: { checkin: Checkin; isAdmin: boolean 
                       src={p.photo_url}
                       alt=""
                       className="h-20 w-20 shrink-0 cursor-pointer rounded-lg object-cover"
+                      loading="lazy"
                     />
                   </PhotoView>
                 ))}

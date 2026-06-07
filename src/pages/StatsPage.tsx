@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
-import { Users, Route, MapPin, ClipboardCheck } from 'lucide-react'
+import { Users, Route, MapPin, ClipboardCheck, ChevronDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { getUsers, getCheckins, getTracks } from '../api/supabase'
+import { getUsers, getCheckins, getTracks, getTracksByUser, getCheckinsByUser } from '../api/supabase'
 import {
   getLast7DaysRange,
   formatDistance,
@@ -14,6 +14,8 @@ import type { UserStats } from '../types'
 
 export default function StatsPage() {
   const [period, setPeriod] = useState<'7days' | '30days' | 'all'>('7days')
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
+  const [showUserSelect, setShowUserSelect] = useState(false)
 
   const { data: users } = useQuery({
     queryKey: ['users'],
@@ -23,42 +25,36 @@ export default function StatsPage() {
     },
   })
 
+  const dateRange = useMemo(() => {
+    if (period === '7days') return getLast7DaysRange()
+    if (period === '30days') {
+      const d = new Date()
+      d.setDate(d.getDate() - 30)
+      return { start: d.toISOString(), end: new Date().toISOString() }
+    }
+    return { start: undefined, end: undefined }
+  }, [period])
+
   const { data: checkins } = useQuery({
-    queryKey: ['checkins', period],
+    queryKey: ['checkins', period, selectedUserId],
     queryFn: async () => {
-      let start: string | undefined
-      let end: string | undefined
-      if (period === '7days') {
-        const range = getLast7DaysRange()
-        start = range.start
-        end = range.end
-      } else if (period === '30days') {
-        const d = new Date()
-        d.setDate(d.getDate() - 30)
-        start = d.toISOString()
-        end = new Date().toISOString()
+      if (selectedUserId) {
+        const { data } = await getCheckinsByUser(selectedUserId, dateRange.start, dateRange.end)
+        return data || []
       }
-      const { data } = await getCheckins(start, end)
+      const { data } = await getCheckins(dateRange.start, dateRange.end)
       return data || []
     },
   })
 
   const { data: tracks } = useQuery({
-    queryKey: ['tracks', period],
+    queryKey: ['tracks', period, selectedUserId],
     queryFn: async () => {
-      let start: string | undefined
-      let end: string | undefined
-      if (period === '7days') {
-        const range = getLast7DaysRange()
-        start = range.start
-        end = range.end
-      } else if (period === '30days') {
-        const d = new Date()
-        d.setDate(d.getDate() - 30)
-        start = d.toISOString()
-        end = new Date().toISOString()
+      if (selectedUserId) {
+        const { data } = await getTracksByUser(selectedUserId, dateRange.start, dateRange.end)
+        return data || []
       }
-      const { data } = await getTracks(start, end)
+      const { data } = await getTracks(dateRange.start, dateRange.end)
       return data || []
     },
   })
@@ -83,6 +79,21 @@ export default function StatsPage() {
   }, [users, checkins, tracks])
 
   const userStats: UserStats[] = useMemo(() => {
+    if (selectedUserId) {
+      const user = users?.find((u) => u.id === selectedUserId)
+      if (!user) return []
+      const userTracks = tracks || []
+      const userCheckins = checkins || []
+      return [
+        {
+          user: { ...user, color: getUserColor(0) },
+          todayMileage: calculatePolylineDistance(userTracks),
+          todayOnlineMinutes: calculateOnlineMinutes(userTracks),
+          todayCheckins: userCheckins.length,
+          todayComplaints: userCheckins.filter((c) => c.complaint_content && c.complaint_content.trim()).length,
+        },
+      ]
+    }
     return (users || []).map((u, idx) => {
       const userTracks = tracksByUser.get(u.id) || []
       const userCheckins = (checkins || []).filter((c) => c.user_id === u.id)
@@ -94,13 +105,15 @@ export default function StatsPage() {
         todayComplaints: userCheckins.filter((c) => c.complaint_content && c.complaint_content.trim()).length,
       }
     })
-  }, [users, checkins, tracksByUser])
+  }, [users, checkins, tracks, tracksByUser, selectedUserId])
 
   const periodOptions = [
     { key: '7days' as const, label: '最近7天' },
     { key: '30days' as const, label: '最近30天' },
     { key: 'all' as const, label: '全部' },
   ]
+
+  const selectedUserName = users?.find((u) => u.id === selectedUserId)?.name || '全部人员'
 
   return (
     <div className="h-full overflow-y-auto px-4 pb-20 pt-4">
@@ -122,6 +135,46 @@ export default function StatsPage() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* 人员筛选 */}
+      <div className="relative mt-3">
+        <button
+          onClick={() => setShowUserSelect(!showUserSelect)}
+          className="flex w-full items-center justify-between rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-300"
+        >
+          <span>{selectedUserName}</span>
+          <ChevronDown size={14} />
+        </button>
+        {showUserSelect && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl bg-slate-900 shadow-lg">
+            <button
+              onClick={() => {
+                setSelectedUserId(null)
+                setShowUserSelect(false)
+              }}
+              className={`block w-full px-4 py-2.5 text-left text-sm ${
+                selectedUserId === null ? 'text-primary-400' : 'text-slate-300'
+              }`}
+            >
+              全部人员
+            </button>
+            {(users || []).map((u) => (
+              <button
+                key={u.id}
+                onClick={() => {
+                  setSelectedUserId(u.id)
+                  setShowUserSelect(false)
+                }}
+                className={`block w-full px-4 py-2.5 text-left text-sm ${
+                  selectedUserId === u.id ? 'text-primary-400' : 'text-slate-300'
+                }`}
+              >
+                {u.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 统计卡片 2x2 */}

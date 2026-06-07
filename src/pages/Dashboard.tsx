@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Route,
@@ -13,10 +14,15 @@ import {
   Gauge,
   Signal,
   Image as ImageIcon,
+  Edit3,
+  Clock,
+  Map,
+  CloudOff,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useLocationStore, getGpsStatus } from '../store/locationStore'
-import { useQuery } from '@tanstack/react-query'
+import { useOfflineSync } from '../hooks/useOfflineSync'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getUsers,
   getCheckins,
@@ -34,6 +40,7 @@ import {
 } from '../utils/helpers'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import { getUserColor } from '../utils/constants'
+import CheckinEditModal from '../components/CheckinEditModal'
 import type { Track, User as UserType, Checkin } from '../types'
 import L from 'leaflet'
 
@@ -50,7 +57,15 @@ function createUserIcon(color: string) {
 /* ============================================================
    GPS 状态徽章
    ============================================================ */
-function GpsStatusBadge({ accuracy, speed, isTracking }: { accuracy: number | null; speed: number | null; isTracking: boolean }) {
+function GpsStatusBadge({
+  accuracy,
+  speed,
+  isTracking,
+}: {
+  accuracy: number | null
+  speed: number | null
+  isTracking: boolean
+}) {
   const status = getGpsStatus(accuracy, speed, isTracking)
 
   const config = {
@@ -77,7 +92,13 @@ function GpsStatusBadge({ accuracy, speed, isTracking }: { accuracy: number | nu
 /* ============================================================
    打卡记录卡片（小）
    ============================================================ */
-function MiniCheckinCard({ checkin }: { checkin: Checkin }) {
+function MiniCheckinCard({
+  checkin,
+  onEdit,
+}: {
+  checkin: Checkin
+  onEdit: (c: Checkin) => void
+}) {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-slate-800/50 bg-slate-900/80 p-3">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-400 text-sm font-bold">
@@ -94,7 +115,7 @@ function MiniCheckinCard({ checkin }: { checkin: Checkin }) {
         {checkin.complaint_content && (
           <div className="mt-1 truncate text-xs text-slate-400">{checkin.complaint_content}</div>
         )}
-        <div className="mt-1 flex items-center gap-2">
+        <div className="mt-1.5 flex items-center gap-2">
           {checkin.test_result && (
             <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
               已处理
@@ -106,6 +127,21 @@ function MiniCheckinCard({ checkin }: { checkin: Checkin }) {
               {checkin.photos.length}张
             </span>
           )}
+          {checkin.edit_count && checkin.edit_count > 0 && (
+            <span className="flex items-center gap-0.5 text-[10px] text-slate-500">
+              <Edit3 size={10} />
+              已改{checkin.edit_count}次
+            </span>
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit(checkin)
+            }}
+            className="ml-auto rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
+          >
+            编辑
+          </button>
         </div>
       </div>
     </div>
@@ -116,6 +152,9 @@ function MiniCheckinCard({ checkin }: { checkin: Checkin }) {
 function TesterDashboard() {
   const { user } = useAuthStore()
   const { latitude, longitude, speed, accuracy, isTracking } = useLocationStore()
+  const queryClient = useQueryClient()
+  const { pendingCount, syncStatus } = useOfflineSync()
+  const [editingCheckin, setEditingCheckin] = useState<Checkin | null>(null)
 
   const { data: myTracks } = useQuery({
     queryKey: ['tracks', 'mine', 'today'],
@@ -143,8 +182,13 @@ function TesterDashboard() {
   const todayComplaints =
     myCheckins?.filter((c) => c.complaint_content && c.complaint_content.trim()).length || 0
 
-  // 最近5条打卡
-  const recentCheckins = (myCheckins || []).slice(-5).reverse()
+  // 最近10条打卡
+  const recentCheckins = (myCheckins || []).slice(-10).reverse()
+
+  const handleSaved = (updated: Checkin) => {
+    queryClient.invalidateQueries({ queryKey: ['checkins'] })
+    setEditingCheckin(null)
+  }
 
   return (
     <div className="space-y-4 p-4 pb-20">
@@ -164,7 +208,6 @@ function TesterDashboard() {
 
       {/* 数据卡片 2x2 */}
       <div className="grid grid-cols-2 gap-3">
-        {/* 今日轨迹里程 */}
         <div className="flex flex-col rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-primary-500/10 text-primary-400">
             <Route size={18} />
@@ -173,7 +216,6 @@ function TesterDashboard() {
           <div className="mt-0.5 text-xs text-slate-500">今日轨迹里程</div>
         </div>
 
-        {/* 今日打卡次数 */}
         <div className="flex flex-col rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
             <MapPin size={18} />
@@ -182,7 +224,6 @@ function TesterDashboard() {
           <div className="mt-0.5 text-xs text-slate-500">今日打卡次数</div>
         </div>
 
-        {/* 今日投诉数 */}
         <div className="flex flex-col rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-rose-500/10 text-rose-400">
             <ClipboardCheck size={18} />
@@ -191,7 +232,6 @@ function TesterDashboard() {
           <div className="mt-0.5 text-xs text-slate-500">今日投诉数</div>
         </div>
 
-        {/* 当前定位状态 */}
         <div className="flex flex-col rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div
             className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${
@@ -204,20 +244,16 @@ function TesterDashboard() {
             {isTracking ? '定位中' : '未开启'}
           </div>
           <div className="mt-0.5 text-xs text-slate-500">
-            {latitude && longitude
-              ? `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
-              : '位置未获取'}
+            {latitude && longitude ? `${latitude.toFixed(4)}, ${longitude.toFixed(4)}` : '位置未获取'}
           </div>
         </div>
       </div>
 
       {/* GPS 状态栏 */}
       {isTracking && (
-        <div className="flex items-center justify-between rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <GpsStatusBadge accuracy={accuracy} speed={speed} isTracking={isTracking} />
-            </div>
+        <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
+          <div className="flex items-center justify-between">
+            <GpsStatusBadge accuracy={accuracy} speed={speed} isTracking={isTracking} />
             <div className="flex items-center gap-4 text-xs text-slate-400">
               {accuracy !== null && (
                 <span className="flex items-center gap-1">
@@ -228,13 +264,29 @@ function TesterDashboard() {
               {speed !== null && (
                 <span className="flex items-center gap-1">
                   <Navigation size={12} />
-                  速度 {speed.toFixed(1)} km/h
+                  {speed.toFixed(1)} km/h
                 </span>
               )}
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-xs text-slate-500">GPS状态</div>
+        </div>
+      )}
+
+      {/* 离线缓存状态 */}
+      {pendingCount > 0 && (
+        <div className="flex items-center justify-between rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/15 text-amber-400">
+              <CloudOff size={18} />
+            </div>
+            <div>
+              <div className="text-sm font-medium text-amber-400">
+                {syncStatus === 'syncing' ? '同步中...' : `待同步 ${pendingCount} 条数据`}
+              </div>
+              <div className="text-xs text-amber-400/60">
+                网络恢复后将自动上传
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -244,13 +296,24 @@ function TesterDashboard() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-300">最近打卡</h2>
+            <span className="text-xs text-slate-600">最近10条</span>
           </div>
           <div className="space-y-2">
             {recentCheckins.map((checkin) => (
-              <MiniCheckinCard key={checkin.id} checkin={checkin} />
+              <MiniCheckinCard key={checkin.id} checkin={checkin} onEdit={setEditingCheckin} />
             ))}
           </div>
         </div>
+      )}
+
+      {/* 编辑弹窗 */}
+      {editingCheckin && (
+        <CheckinEditModal
+          checkin={editingCheckin}
+          isOpen={!!editingCheckin}
+          onClose={() => setEditingCheckin(null)}
+          onSaved={handleSaved}
+        />
       )}
     </div>
   )
@@ -313,7 +376,6 @@ function AdminDashboard() {
     return Array.from(map.values())
   })()
 
-  // 最近5条投诉记录和打卡记录
   const recentComplaints = (checkins || [])
     .filter((c) => c.complaint_content && c.complaint_content.trim())
     .slice(-5)
@@ -339,7 +401,6 @@ function AdminDashboard() {
 
       {/* 统计卡片 2x2 */}
       <div className="grid grid-cols-2 gap-3">
-        {/* 在线人数 */}
         <div className="flex flex-col rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
             <Users size={18} />
@@ -366,7 +427,6 @@ function AdminDashboard() {
           </div>
         </div>
 
-        {/* 今日投诉数 */}
         <div className="flex flex-col rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-rose-500/10 text-rose-400">
             <ClipboardCheck size={18} />
@@ -375,7 +435,6 @@ function AdminDashboard() {
           <div className="mt-0.5 text-xs text-slate-500">今日投诉数</div>
         </div>
 
-        {/* 今日打卡数 */}
         <div className="flex flex-col rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
             <MapPin size={18} />
@@ -384,7 +443,6 @@ function AdminDashboard() {
           <div className="mt-0.5 text-xs text-slate-500">今日打卡数</div>
         </div>
 
-        {/* 今日总里程 */}
         <div className="flex flex-col rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-primary-500/10 text-primary-400">
             <Navigation size={18} />
@@ -395,6 +453,23 @@ function AdminDashboard() {
           <div className="mt-0.5 text-xs text-slate-500">今日总里程</div>
         </div>
       </div>
+
+      {/* 实时监控快捷入口 */}
+      <button
+        onClick={() => navigate('/map')}
+        className="flex w-full items-center justify-between rounded-2xl border border-slate-800/50 bg-slate-900 p-4 text-left transition-colors active:bg-slate-800"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-500/10 text-primary-400">
+            <Map size={20} />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-slate-200">实时监控</div>
+            <div className="text-xs text-slate-500">查看人员位置与轨迹</div>
+          </div>
+        </div>
+        <ChevronRight size={18} className="text-slate-600" />
+      </button>
 
       {/* 最近投诉记录 */}
       {recentComplaints.length > 0 && (
@@ -503,17 +578,13 @@ function AdminDashboard() {
                     <div>
                       <div className="text-sm font-medium text-slate-200">{u.name}</div>
                       <div className="text-xs text-slate-500">
-                        {latestTrack
-                          ? `最近更新 ${formatTime(latestTrack.created_at)}`
-                          : '暂无位置'}
+                        {latestTrack ? `最近更新 ${formatTime(latestTrack.created_at)}` : '暂无位置'}
                       </div>
                     </div>
                   </div>
                   <div
                     className={`rounded-full px-2 py-0.5 text-[10px] ${
-                      isOnline
-                        ? 'bg-emerald-500/10 text-emerald-400'
-                        : 'bg-slate-800 text-slate-500'
+                      isOnline ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
                     }`}
                   >
                     {isOnline ? '在线' : '离线'}

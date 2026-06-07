@@ -1,12 +1,22 @@
-import { LogOut, MapPin, Route, ClipboardCheck, Shield, Radio } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { LogOut, MapPin, Route, ClipboardCheck, Shield, Radio, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useLocationStore } from '../store/locationStore'
 import { useLocationTracking } from '../hooks/useLocationTracking'
 import { useQuery } from '@tanstack/react-query'
 import { getTracksByUser, getCheckinsByUser } from '../api/supabase'
-import { getTodayRange, formatDistance, calculatePolylineDistance } from '../utils/helpers'
+import {
+  getTodayRange,
+  getWeekRange,
+  getMonthRange,
+  formatDistance,
+  calculatePolylineDistance,
+  calculateOnlineMinutes,
+} from '../utils/helpers'
+import PeriodOverviewCard from '../components/PeriodOverviewCard'
 
 export default function Profile() {
+  const navigate = useNavigate()
   const { user, logout } = useAuthStore()
   const { latitude, longitude, speed, battery, isTracking } = useLocationStore()
   const { startTracking, stopTracking } = useLocationTracking()
@@ -23,6 +33,28 @@ export default function Profile() {
     enabled: !!user && !isAdmin,
   })
 
+  const { data: weekTracks } = useQuery({
+    queryKey: ['tracks', 'mine', 'week'],
+    queryFn: async () => {
+      if (!user) return []
+      const range = getWeekRange()
+      const { data } = await getTracksByUser(user.id, range.start, range.end)
+      return data || []
+    },
+    enabled: !!user && !isAdmin,
+  })
+
+  const { data: monthTracks } = useQuery({
+    queryKey: ['tracks', 'mine', 'month'],
+    queryFn: async () => {
+      if (!user) return []
+      const range = getMonthRange()
+      const { data } = await getTracksByUser(user.id, range.start, range.end)
+      return data || []
+    },
+    enabled: !!user && !isAdmin,
+  })
+
   const { data: myCheckins } = useQuery({
     queryKey: ['checkins', 'mine', 'today'],
     queryFn: async () => {
@@ -33,10 +65,45 @@ export default function Profile() {
     enabled: !!user && !isAdmin,
   })
 
+  const { data: weekCheckins } = useQuery({
+    queryKey: ['checkins', 'mine', 'week'],
+    queryFn: async () => {
+      if (!user) return []
+      const range = getWeekRange()
+      const { data } = await getCheckinsByUser(user.id, range.start, range.end)
+      return data || []
+    },
+    enabled: !!user && !isAdmin,
+  })
+
+  const { data: monthCheckins } = useQuery({
+    queryKey: ['checkins', 'mine', 'month'],
+    queryFn: async () => {
+      if (!user) return []
+      const range = getMonthRange()
+      const { data } = await getCheckinsByUser(user.id, range.start, range.end)
+      return data || []
+    },
+    enabled: !!user && !isAdmin,
+  })
+
   const todayMileage = myTracks ? calculatePolylineDistance(myTracks) : 0
+  const todayOnlineMinutes = myTracks ? calculateOnlineMinutes(myTracks) : 0
   const todayCheckins = myCheckins?.length || 0
   const todayComplaints =
     myCheckins?.filter((c) => c.complaint_content && c.complaint_content.trim()).length || 0
+
+  const weekMileage = weekTracks ? calculatePolylineDistance(weekTracks) : 0
+  const weekOnlineMinutes = weekTracks ? calculateOnlineMinutes(weekTracks) : 0
+  const weekCheckinsCount = weekCheckins?.length || 0
+  const weekComplaints =
+    weekCheckins?.filter((c) => c.complaint_content && c.complaint_content.trim()).length || 0
+
+  const monthMileage = monthTracks ? calculatePolylineDistance(monthTracks) : 0
+  const monthOnlineMinutes = monthTracks ? calculateOnlineMinutes(monthTracks) : 0
+  const monthCheckinsCount = monthCheckins?.length || 0
+  const monthComplaints =
+    monthCheckins?.filter((c) => c.complaint_content && c.complaint_content.trim()).length || 0
 
   return (
     <div className="h-full overflow-y-auto px-4 pb-20 pt-4">
@@ -98,31 +165,38 @@ export default function Profile() {
         </div>
       )}
 
-      {/* 今日概览 */}
+      {/* 测试人员：周期概览 */}
       {!isAdmin && (
-        <div className="mt-4 rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
-          <h2 className="font-semibold text-slate-200">今日概览</h2>
-          <div className="mt-3 grid grid-cols-3 gap-3">
-            <div className="rounded-xl bg-slate-800/50 p-3 text-center">
-              <Route size={18} className="mx-auto text-primary-400" />
-              <div className="mt-1 text-lg font-bold text-slate-100">{formatDistance(todayMileage)}</div>
-              <div className="text-[10px] text-slate-500">里程</div>
-            </div>
-            <div className="rounded-xl bg-slate-800/50 p-3 text-center">
-              <MapPin size={18} className="mx-auto text-amber-400" />
-              <div className="mt-1 text-lg font-bold text-slate-100">{todayCheckins}</div>
-              <div className="text-[10px] text-slate-500">打卡</div>
-            </div>
-            <div className="rounded-xl bg-slate-800/50 p-3 text-center">
-              <ClipboardCheck size={18} className="mx-auto text-rose-400" />
-              <div className="mt-1 text-lg font-bold text-slate-100">{todayComplaints}</div>
-              <div className="text-[10px] text-slate-500">投诉</div>
-            </div>
-          </div>
+        <div className="mt-4 space-y-3">
+          <h2 className="font-semibold text-slate-200">数据概览</h2>
+          <PeriodOverviewCard
+            title="今日概览"
+            mileage={todayMileage}
+            onlineMinutes={todayOnlineMinutes}
+            checkins={todayCheckins}
+            complaints={todayComplaints}
+            onClick={() => navigate('/period/today')}
+          />
+          <PeriodOverviewCard
+            title="本周概览"
+            mileage={weekMileage}
+            onlineMinutes={weekOnlineMinutes}
+            checkins={weekCheckinsCount}
+            complaints={weekComplaints}
+            onClick={() => navigate('/period/week')}
+          />
+          <PeriodOverviewCard
+            title="本月概览"
+            mileage={monthMileage}
+            onlineMinutes={monthOnlineMinutes}
+            checkins={monthCheckinsCount}
+            complaints={monthComplaints}
+            onClick={() => navigate('/period/month')}
+          />
         </div>
       )}
 
-      {/* 管理员：定位状态 */}
+      {/* 管理员：系统状态 */}
       {isAdmin && (
         <div className="mt-4 rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
           <h2 className="font-semibold text-slate-200">系统状态</h2>

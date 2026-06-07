@@ -12,6 +12,7 @@ import TrackPlayback from './pages/TrackPlayback'
 import CheckinList from './pages/CheckinList'
 import StatsPage from './pages/StatsPage'
 import Profile from './pages/Profile'
+import PeriodDetailPage from './pages/PeriodDetailPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -36,6 +37,7 @@ function AppRoutes() {
                 <Route path="/checkin" element={<CheckinPage />} />
                 <Route path="/tracks" element={<TrackHistory />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/period/:period" element={<PeriodDetailPage />} />
                 {/* 管理员专属路由 */}
                 <Route
                   path="/checkins"

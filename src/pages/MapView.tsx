@@ -1,15 +1,51 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Polyline,
+  useMap,
+  useMapEvent,
+} from 'react-leaflet'
 import { useQuery } from '@tanstack/react-query'
-import { Layers, X, Navigation, Battery, Gauge, Crosshair, MapPin, Image as ImageIcon, ChevronRight } from 'lucide-react'
+import {
+  Layers,
+  X,
+  Navigation,
+  Battery,
+  Gauge,
+  Crosshair,
+  MapPin,
+  Image as ImageIcon,
+  ChevronRight,
+  Calendar,
+  Eye,
+  EyeOff,
+} from 'lucide-react'
 import { PhotoProvider, PhotoView } from 'react-photo-view'
 import { useMapStore } from '../store/mapStore'
 import { useLocationStore } from '../store/locationStore'
 import { useAuthStore } from '../store/authStore'
-import { getUsers, getLatestTracks, getCheckins, getCheckinsByUser, getTracksByUser } from '../api/supabase'
-import { getTodayRange, formatDistance, formatDateTime, calculatePolylineDistance } from '../utils/helpers'
-import { getUserColor } from '../utils/constants'
+import {
+  getUsers,
+  getLatestTracks,
+  getCheckins,
+  getCheckinsByUser,
+  getTracksByUser,
+} from '../api/supabase'
+import {
+  getTodayRange,
+  formatDistance,
+  formatDateTime,
+  formatDate,
+  calculatePolylineDistance,
+  simplifyTrack,
+} from '../utils/helpers'
+import { getUserColor, BASE_MAPS } from '../utils/constants'
 import HeatmapLayer from '../components/HeatmapLayer'
+import MapLayerControl from '../components/MapLayerControl'
+import MapLegend from '../components/MapLegend'
 import type { Track, User, Checkin } from '../types'
 import L from 'leaflet'
 
@@ -35,14 +71,45 @@ function createUserIcon(color: string) {
   })
 }
 
-function createCheckinIcon(seq: number) {
+function createCheckinIcon(seq: number, isComplaint: boolean) {
+  const bg = isComplaint ? '#ef4444' : '#f59e0b'
   return L.divIcon({
     className: 'custom-div-icon',
-    html: `<div style="background:#f59e0b;color:#0f172a;font-weight:700;font-size:12px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);">${seq}</div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
+    html: `<div style="background:${bg};color:#fff;font-weight:700;font-size:11px;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);">${seq}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
     popupAnchor: [0, -14],
   })
+}
+
+/* ============================================================
+   地图初始化修复：invalidateSize
+   ============================================================ */
+function MapInitializer() {
+  const map = useMap()
+  const initialized = useRef(false)
+
+  useEffect(() => {
+    if (!initialized.current) {
+      initialized.current = true
+      setTimeout(() => map.invalidateSize(), 150)
+    }
+  }, [map])
+
+  useMapEvent('moveend', () => {
+    // 确保地图尺寸正确
+  })
+
+  useEffect(() => {
+    const handle = () => setTimeout(() => map.invalidateSize(), 100)
+    window.addEventListener('resize', handle)
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) handle()
+    })
+    return () => window.removeEventListener('resize', handle)
+  }, [map])
+
+  return null
 }
 
 /* ============================================================
@@ -55,7 +122,6 @@ function MapFitBounds({
 }: {
   tracks?: Track[]
   checkins?: Checkin[]
-  trigger?: number
 }) {
   const map = useMap()
 
@@ -71,7 +137,7 @@ function MapFitBounds({
       const bounds = L.latLngBounds(points)
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 })
     }
-  }, [map, tracks, checkins, trigger])
+  }, [map, tracks, checkins])
 
   return null
 }
@@ -113,12 +179,18 @@ function MapLocator({ trigger }: { trigger: number }) {
    ============================================================ */
 function CheckinPopup({ checkin, isAdmin }: { checkin: Checkin; isAdmin: boolean }) {
   return (
-    <div className="min-w-[220px] max-w-[260px] space-y-2 p-1">
+    <div className="min-w-[240px] max-w-[300px] space-y-2 p-1">
       <div className="flex items-center gap-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-slate-900">
+        <div
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+          style={{
+            background: checkin.complaint_content?.trim() ? '#ef4444' : '#f59e0b',
+            color: '#fff',
+          }}
+        >
           {checkin.sequence_no}
         </div>
-        <div className="font-semibold text-slate-100">
+        <div className="min-w-0 flex-1 truncate font-semibold text-slate-100">
           {checkin.title || `打卡 #${checkin.sequence_no}`}
         </div>
       </div>
@@ -129,7 +201,7 @@ function CheckinPopup({ checkin, isAdmin }: { checkin: Checkin; isAdmin: boolean
 
       <div className="flex items-center gap-1 text-xs text-slate-500">
         <MapPin size={12} />
-        {checkin.address}
+        <span className="line-clamp-2">{checkin.address}</span>
       </div>
 
       <div className="flex items-center gap-1 text-xs text-slate-500">
@@ -138,16 +210,23 @@ function CheckinPopup({ checkin, isAdmin }: { checkin: Checkin; isAdmin: boolean
       </div>
 
       {checkin.complaint_content && (
-        <div className="rounded-lg bg-slate-800/60 p-2">
-          <div className="text-[10px] font-medium text-slate-500">投诉内容</div>
-          <div className="mt-0.5 text-xs text-slate-300">{checkin.complaint_content}</div>
+        <div className="rounded-lg bg-rose-500/10 p-2">
+          <div className="text-[10px] font-medium text-rose-400">投诉内容</div>
+          <div className="mt-0.5 text-xs text-rose-200">{checkin.complaint_content}</div>
         </div>
       )}
 
       {checkin.test_result && (
+        <div className="rounded-lg bg-emerald-500/10 p-2">
+          <div className="text-[10px] font-medium text-emerald-400">测试结果</div>
+          <div className="mt-0.5 text-xs text-emerald-200">{checkin.test_result}</div>
+        </div>
+      )}
+
+      {checkin.solution_result && (
         <div className="rounded-lg bg-slate-800/60 p-2">
           <div className="text-[10px] font-medium text-slate-500">处理结果</div>
-          <div className="mt-0.5 text-xs text-emerald-300">{checkin.test_result}</div>
+          <div className="mt-0.5 text-xs text-slate-300">{checkin.solution_result}</div>
         </div>
       )}
 
@@ -159,7 +238,8 @@ function CheckinPopup({ checkin, isAdmin }: { checkin: Checkin; isAdmin: boolean
                 <img
                   src={p.photo_url}
                   alt=""
-                  className="h-14 w-14 shrink-0 cursor-pointer rounded-md object-cover"
+                  className="h-16 w-16 shrink-0 cursor-pointer rounded-md object-cover"
+                  loading="lazy"
                 />
               </PhotoView>
             ))}
@@ -181,9 +261,22 @@ export default function MapView() {
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
   const { latitude, longitude } = useLocationStore()
-  const { activeLayers, selectedUserId, setSelectedUserId, followMode, setFollowMode } = useMapStore()
+  const {
+    activeLayers,
+    baseMap,
+    selectedUserId,
+    setSelectedUserId,
+    followMode,
+    setFollowMode,
+  } = useMapStore()
   const [showLayerPanel, setShowLayerPanel] = useState(false)
   const [locateTrigger, setLocateTrigger] = useState(0)
+  const [mapDate, setMapDate] = useState(formatDate(new Date()))
+
+  const baseMapConfig = useMemo(
+    () => BASE_MAPS.find((m) => m.key === baseMap) || BASE_MAPS[0],
+    [baseMap]
+  )
 
   const { data: users } = useQuery({
     queryKey: ['users'],
@@ -203,11 +296,16 @@ export default function MapView() {
     refetchInterval: 30000,
   })
 
-  const { data: todayCheckins } = useQuery({
-    queryKey: ['checkins', 'today'],
+  const dateRange = useMemo(() => {
+    const start = `${mapDate}T00:00:00`
+    const end = `${mapDate}T23:59:59`
+    return { start, end }
+  }, [mapDate])
+
+  const { data: allCheckins } = useQuery({
+    queryKey: ['checkins', 'map', dateRange.start, dateRange.end],
     queryFn: async () => {
-      const range = getTodayRange()
-      const { data } = await getCheckins(range.start, range.end)
+      const { data } = await getCheckins(dateRange.start, dateRange.end)
       return data || []
     },
   })
@@ -222,15 +320,32 @@ export default function MapView() {
     enabled: !isAdmin && !!user,
   })
 
+  // 管理员：选中人员的轨迹
   const { data: selectedTracks } = useQuery({
-    queryKey: ['tracks', selectedUserId, 'today'],
+    queryKey: ['tracks', selectedUserId, dateRange.start, dateRange.end],
     queryFn: async () => {
       if (!selectedUserId) return []
-      const range = getTodayRange()
-      const { data } = await getTracksByUser(selectedUserId, range.start, range.end)
+      const { data } = await getTracksByUser(selectedUserId, dateRange.start, dateRange.end)
       return data || []
     },
     enabled: !!selectedUserId,
+  })
+
+  // 管理员：所有人员的今日轨迹
+  const { data: allTracks } = useQuery({
+    queryKey: ['tracks', 'all', dateRange.start, dateRange.end],
+    queryFn: async () => {
+      const { data } = await getCheckins(dateRange.start, dateRange.end)
+      // 获取所有人员的轨迹
+      const userIds = [...new Set((data || []).map((c) => c.user_id))]
+      const results: Record<string, Track[]> = {}
+      for (const uid of userIds) {
+        const { data: t } = await getTracksByUser(uid, dateRange.start, dateRange.end)
+        results[uid] = t || []
+      }
+      return results
+    },
+    enabled: isAdmin,
   })
 
   const { data: myTracks } = useQuery({
@@ -261,15 +376,18 @@ export default function MapView() {
     return Array.from(map.values())
   }, [latestTracks, userMap])
 
+  // 可见数据
+  const visibleCheckins: Checkin[] = isAdmin
+    ? (allCheckins || [])
+    : (myCheckins || [])
+
+  // 测试人员只看自己的轨迹
+  const myVisibleTracks: Track[] = myTracks || []
+
   const todayMileage = useMemo(() => {
     if (!selectedTracks || selectedTracks.length === 0) return 0
     return calculatePolylineDistance(selectedTracks)
   }, [selectedTracks])
-
-  // 管理员看所有人打卡，测试人员只看自己的
-  const visibleCheckins: Checkin[] = isAdmin ? (todayCheckins || []) : (myCheckins || [])
-  // 管理员看选中人员的轨迹，测试人员看自己的轨迹
-  const visibleTracks: Track[] = isAdmin ? (selectedTracks || []) : (myTracks || [])
 
   const heatPoints = useMemo(() => {
     return (visibleCheckins || []).map((c: Checkin) => ({
@@ -286,15 +404,7 @@ export default function MapView() {
     { key: 'heat' as const, label: '热力图' },
   ]
 
-  // 管理员使用 store 中的图层设置，测试人员默认显示轨迹和打卡点
-  const effectiveLayers = isAdmin
-    ? activeLayers
-    : ['tracks', 'checkins']
-
-  // 自动适配范围用的触发器
-  const fitTrigger = useMemo(() => {
-    return (visibleTracks?.length || 0) + (visibleCheckins?.length || 0)
-  }, [visibleTracks, visibleCheckins])
+  const effectiveLayers = isAdmin ? activeLayers : ['tracks', 'checkins']
 
   const handleLocate = useCallback(() => {
     setLocateTrigger((t) => t + 1)
@@ -312,16 +422,22 @@ export default function MapView() {
         className="h-full w-full"
         zoomControl={false}
       >
+        <MapInitializer />
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution={baseMapConfig.attribution}
+          url={baseMapConfig.url}
+          key={baseMapConfig.key}
         />
-        <MapFitBounds tracks={visibleTracks} checkins={visibleCheckins} trigger={fitTrigger} />
+        <MapFitBounds
+          tracks={isAdmin ? undefined : myVisibleTracks}
+          checkins={visibleCheckins}
+        />
         <MapFollower enabled={followMode} />
         <MapLocator trigger={locateTrigger} />
 
         {/* 管理员：实时位置（全员） */}
-        {isAdmin && effectiveLayers.includes('realtime') &&
+        {isAdmin &&
+          effectiveLayers.includes('realtime') &&
           latestByUser.map((track, idx) => (
             <Marker
               key={track.user_id}
@@ -333,7 +449,9 @@ export default function MapView() {
             >
               <Popup>
                 <div className="min-w-[160px] space-y-1 p-1">
-                  <div className="font-semibold text-slate-100">{track.user?.name || '未知人员'}</div>
+                  <div className="font-semibold text-slate-100">
+                    {track.user?.name || '未知人员'}
+                  </div>
                   <div className="flex items-center gap-1.5 text-xs text-slate-400">
                     <div className="h-2 w-2 rounded-full bg-emerald-400" />
                     在线
@@ -346,41 +464,76 @@ export default function MapView() {
                     <Battery size={12} />
                     {track.battery || '--'}%
                   </div>
-                  <div className="text-xs text-slate-500">{formatDateTime(track.created_at)}</div>
+                  <div className="text-xs text-slate-500">
+                    {formatDateTime(track.created_at)}
+                  </div>
                 </div>
               </Popup>
             </Marker>
           ))}
 
-        {/* 管理员：选中人员轨迹 / 测试人员：自己的轨迹 */}
-        {effectiveLayers.includes('tracks') && visibleTracks && visibleTracks.length > 1 && (
-          <>
-            <Polyline
-              positions={visibleTracks.map((t) => [t.latitude, t.longitude])}
-              color="#3b82f6"
-              weight={3}
-              opacity={0.8}
-            />
-            {/* 轨迹起点和终点标记 */}
-            <Marker position={[visibleTracks[0].latitude, visibleTracks[0].longitude]}>
-              <Popup>
-                <div className="text-xs text-slate-500">起点 {formatDateTime(visibleTracks[0].created_at)}</div>
-              </Popup>
-            </Marker>
-            <Marker
-              position={[
-                visibleTracks[visibleTracks.length - 1].latitude,
-                visibleTracks[visibleTracks.length - 1].longitude,
-              ]}
-            >
-              <Popup>
-                <div className="text-xs text-slate-500">
-                  终点 {formatDateTime(visibleTracks[visibleTracks.length - 1].created_at)}
-                </div>
-              </Popup>
-            </Marker>
-          </>
-        )}
+        {/* 管理员：所有人员轨迹（不同颜色） */}
+        {isAdmin &&
+          effectiveLayers.includes('tracks') &&
+          allTracks &&
+          Object.entries(allTracks).map(([uid, tracks]) => {
+            if (!tracks || tracks.length < 2) return null
+            const userIdx = (users || []).findIndex((u) => u.id === uid)
+            const color = getUserColor(userIdx >= 0 ? userIdx : 0)
+            const simplified =
+              tracks.length > 500 ? simplifyTrack(tracks, 15) : tracks
+            return (
+              <Polyline
+                key={uid}
+                positions={simplified.map((t) => [t.latitude, t.longitude])}
+                color={color}
+                weight={2.5}
+                opacity={0.7}
+              />
+            )
+          })}
+
+        {/* 测试人员：自己的轨迹 */}
+        {!isAdmin &&
+          effectiveLayers.includes('tracks') &&
+          myVisibleTracks &&
+          myVisibleTracks.length > 1 && (
+            <>
+              <Polyline
+                positions={myVisibleTracks.map((t) => [t.latitude, t.longitude])}
+                color="#3b82f6"
+                weight={3}
+                opacity={0.8}
+              />
+              <Marker
+                position={[
+                  myVisibleTracks[0].latitude,
+                  myVisibleTracks[0].longitude,
+                ]}
+              >
+                <Popup>
+                  <div className="text-xs text-slate-500">
+                    起点 {formatDateTime(myVisibleTracks[0].created_at)}
+                  </div>
+                </Popup>
+              </Marker>
+              <Marker
+                position={[
+                  myVisibleTracks[myVisibleTracks.length - 1].latitude,
+                  myVisibleTracks[myVisibleTracks.length - 1].longitude,
+                ]}
+              >
+                <Popup>
+                  <div className="text-xs text-slate-500">
+                    终点{' '}
+                    {formatDateTime(
+                      myVisibleTracks[myVisibleTracks.length - 1].created_at
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            </>
+          )}
 
         {/* 打卡点 */}
         {effectiveLayers.includes('checkins') &&
@@ -388,7 +541,10 @@ export default function MapView() {
             <Marker
               key={c.id}
               position={[c.latitude, c.longitude]}
-              icon={createCheckinIcon(c.sequence_no)}
+              icon={createCheckinIcon(
+                c.sequence_no,
+                !!c.complaint_content?.trim()
+              )}
             >
               <Popup>
                 <CheckinPopup checkin={c} isAdmin={isAdmin} />
@@ -426,7 +582,8 @@ export default function MapView() {
           >
             <Popup>
               <div className="text-xs text-slate-300">
-                当前位置<br />
+                当前位置
+                <br />
                 {latitude.toFixed(5)}, {longitude.toFixed(5)}
               </div>
             </Popup>
@@ -434,9 +591,14 @@ export default function MapView() {
         )}
       </MapContainer>
 
+      {/* 底图切换 */}
+      <MapLayerControl />
+
+      {/* 地图图例 */}
+      <MapLegend />
+
       {/* 浮动按钮组（定位 + 跟随） */}
       <div className="absolute right-4 bottom-24 z-[1000] flex flex-col gap-2">
-        {/* 跟随模式按钮 */}
         <button
           onClick={handleToggleFollow}
           className={`flex h-11 w-11 items-center justify-center rounded-full shadow-lg backdrop-blur transition-colors ${
@@ -448,8 +610,6 @@ export default function MapView() {
         >
           <Navigation size={20} />
         </button>
-
-        {/* 定位到当前位置按钮 */}
         <button
           onClick={handleLocate}
           className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-900/90 text-slate-300 shadow-lg backdrop-blur active:bg-slate-800"
@@ -464,31 +624,53 @@ export default function MapView() {
         <>
           <button
             onClick={() => setShowLayerPanel(!showLayerPanel)}
-            className="absolute right-4 top-4 z-[1000] flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900/90 text-slate-300 shadow-lg backdrop-blur active:bg-slate-800"
+            className="absolute right-4 top-40 z-[1000] flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900/90 text-slate-300 shadow-lg backdrop-blur active:bg-slate-800"
           >
             <Layers size={20} />
           </button>
 
+          {/* 日期选择 */}
+          <div className="absolute left-4 top-4 z-[1000] flex items-center gap-2 rounded-xl bg-slate-900/90 px-3 py-2 shadow-lg backdrop-blur">
+            <Calendar size={14} className="text-slate-400" />
+            <input
+              type="date"
+              value={mapDate}
+              onChange={(e) => setMapDate(e.target.value)}
+              className="border-none bg-transparent text-xs text-slate-200 outline-none"
+            />
+          </div>
+
           {/* User list */}
-          <div className="absolute left-4 top-4 z-[1000] max-h-[50%] w-40 overflow-y-auto rounded-xl bg-slate-900/90 shadow-lg backdrop-blur">
+          <div className="absolute left-4 top-14 z-[1000] max-h-[40%] w-44 overflow-y-auto rounded-xl bg-slate-900/90 shadow-lg backdrop-blur">
             <div className="p-2 text-xs font-semibold text-slate-400">在线人员</div>
             {latestByUser.map((track, idx) => (
               <button
                 key={track.user_id}
-                onClick={() => setSelectedUserId(track.user_id === selectedUserId ? null : track.user_id)}
+                onClick={() =>
+                  setSelectedUserId(
+                    track.user_id === selectedUserId ? null : track.user_id
+                  )
+                }
                 className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                  selectedUserId === track.user_id ? 'bg-primary-500/20 text-primary-300' : 'text-slate-300 hover:bg-slate-800'
+                  selectedUserId === track.user_id
+                    ? 'bg-primary-500/20 text-primary-300'
+                    : 'text-slate-300 hover:bg-slate-800'
                 }`}
               >
-                <div className="h-2.5 w-2.5 rounded-full" style={{ background: getUserColor(idx) }} />
-                <span className="truncate">{track.user?.name || '未知'}</span>
+                <div
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ background: getUserColor(idx) }}
+                />
+                <span className="truncate">
+                  {track.user?.name || '未知'}
+                </span>
               </button>
             ))}
           </div>
 
           {/* Layer panel */}
           {showLayerPanel && (
-            <div className="absolute right-4 top-16 z-[1000] w-36 rounded-xl bg-slate-900/95 py-2 shadow-lg backdrop-blur">
+            <div className="absolute right-4 top-56 z-[1000] w-36 rounded-xl bg-slate-900/95 py-2 shadow-lg backdrop-blur">
               {layerOptions.map((layer) => (
                 <button
                   key={layer.key}
@@ -513,8 +695,19 @@ export default function MapView() {
                     {userMap.get(selectedUserId)?.name || '未知人员'}
                   </div>
                   <div className="mt-1 flex items-center gap-3 text-xs text-slate-400">
-                    <span className="flex items-center gap-1"><Navigation size={12} /> {todayMileage > 0 ? formatDistance(todayMileage) : '--'}</span>
-                    <span className="flex items-center gap-1"><Battery size={12} /> {(latestByUser.find((t) => t.user_id === selectedUserId)?.battery || '--')}%</span>
+                    <span className="flex items-center gap-1">
+                      <Navigation size={12} />{' '}
+                      {todayMileage > 0 ? formatDistance(todayMileage) : '--'}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Battery size={12} />{' '}
+                      {
+                        latestByUser.find(
+                          (t) => t.user_id === selectedUserId
+                        )?.battery || '--'
+                      }
+                      %
+                    </span>
                   </div>
                 </div>
                 <button
@@ -536,7 +729,9 @@ export default function MapView() {
             <div className="text-sm font-semibold text-slate-100">我的轨迹</div>
             <div className="text-xs text-slate-500">
               {myTracks && myTracks.length > 0
-                ? `今日轨迹 ${formatDistance(calculatePolylineDistance(myTracks))}`
+                ? `今日轨迹 ${formatDistance(
+                    calculatePolylineDistance(myTracks)
+                  )}`
                 : '暂无轨迹数据'}
             </div>
           </div>

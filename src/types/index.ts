@@ -33,6 +33,10 @@ export interface Checkin {
   solution_result: string
   remark: string
   created_at: string
+  edit_count?: number
+  last_edited_at?: string
+  last_edited_by?: string
+  last_edited_by_name?: string
   photos?: Photo[]
   user?: User
 }
@@ -68,3 +72,30 @@ export interface UserStats {
 }
 
 export type MapLayer = 'realtime' | 'tracks' | 'checkins' | 'heat'
+
+export type BaseMapType = 'osm' | 'esri' | 'topo'
+
+export type SyncStatus = 'pending' | 'syncing' | 'success' | 'failed'
+
+export interface OfflineTask {
+  id: string
+  type: 'track' | 'checkin' | 'photo'
+  payload: unknown
+  status: SyncStatus
+  retryCount: number
+  createdAt: string
+}
+
+export interface MapLegendItem {
+  key: string
+  label: string
+  color: string
+  shape: 'circle' | 'line' | 'numbered'
+}
+
+export interface PeriodStats {
+  mileage: number
+  onlineMinutes: number
+  checkins: number
+  complaints: number
+}

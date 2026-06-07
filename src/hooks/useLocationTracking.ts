@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useLocationStore } from '../store/locationStore'
 import { useAuthStore } from '../store/authStore'
 import { insertTrack } from '../api/supabase'
+import { addPendingTask } from '../lib/indexeddb'
 import { LOCATION_INTERVAL } from '../utils/constants'
 import { calculateDistance } from '../utils/helpers'
 
@@ -30,8 +31,8 @@ import { calculateDistance } from '../utils/helpers'
    ============================================================ */
 
 // 过滤参数常量
-const ACCURACY_IGNORE = 100      // 超过此精度直接忽略（米）
-const ACCURACY_POOR = 50         // 超过此精度不上传（米）
+const ACCURACY_IGNORE = 50       // 超过此精度直接丢弃（米）
+const ACCURACY_POOR = 30         // 超过此精度只显示不上传（米）
 const STATIONARY_DISTANCE = 15   // 静止判定距离阈值（米）
 const STATIONARY_SPEED = 1       // 静止判定速度阈值（km/h）
 const MIN_MOVE_DISTANCE = 10     // 最小移动距离（米）
@@ -165,13 +166,20 @@ export function useLocationTracking() {
       }
 
       // 通过过滤，写入轨迹数据库
-      await insertTrack({
+      const payload = {
         user_id: user.id,
         latitude: result.lat,
         longitude: result.lng,
         speed: result.speedKmh,
         battery: 100, // Will be updated via Battery API if available
-      })
+      }
+
+      if (!navigator.onLine) {
+        await addPendingTask('tracks', payload)
+        return
+      }
+
+      await insertTrack(payload)
     },
     [user, setLocation, evaluatePosition]
   )

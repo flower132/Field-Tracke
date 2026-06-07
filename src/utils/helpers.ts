@@ -1,4 +1,4 @@
-import { format, startOfDay, endOfDay, subDays } from 'date-fns'
+import { format, startOfDay, endOfDay, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
 export function formatDateTime(date: string | Date): string {
@@ -286,4 +286,85 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
+
+export function getWeekRange() {
+  const now = new Date()
+  return { start: startOfWeek(now, { locale: zhCN }).toISOString(), end: endOfWeek(now, { locale: zhCN }).toISOString() }
+}
+
+export function getMonthRange() {
+  const now = new Date()
+  return { start: startOfMonth(now).toISOString(), end: endOfMonth(now).toISOString() }
+}
+
+export function getDayOfWeekLabel(date: string | Date): string {
+  const d = new Date(date)
+  const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  return days[d.getDay()]
+}
+
+export function groupByDay<T extends { created_at: string }>(items: T[]): Record<string, T[]> {
+  const groups: Record<string, T[]> = {}
+  for (const item of items) {
+    const day = format(new Date(item.created_at), 'yyyy-MM-dd')
+    if (!groups[day]) groups[day] = []
+    groups[day].push(item)
+  }
+  return groups
+}
+
+/**
+ * 道格拉斯-普克轨迹抽稀算法
+ * @param points 轨迹点数组
+ * @param tolerance 距离阈值（米）
+ */
+export function simplifyTrack(
+  points: Array<{ latitude: number; longitude: number }>,
+  tolerance: number = 10
+): Array<{ latitude: number; longitude: number }> {
+  if (points.length <= 2) return points
+
+  function perpendicularDistance(
+    point: { latitude: number; longitude: number },
+    start: { latitude: number; longitude: number },
+    end: { latitude: number; longitude: number }
+  ): number {
+    const d = calculateDistance(start.latitude, start.longitude, end.latitude, end.longitude)
+    if (d === 0) return calculateDistance(point.latitude, point.longitude, start.latitude, start.longitude)
+    const t =
+      ((point.latitude - start.latitude) * (end.latitude - start.latitude) +
+        (point.longitude - start.longitude) * (end.longitude - start.longitude)) /
+      (d * d)
+    const lat = start.latitude + t * (end.latitude - start.latitude)
+    const lng = start.longitude + t * (end.longitude - start.longitude)
+    return calculateDistance(point.latitude, point.longitude, lat, lng)
+  }
+
+  function douglasPeucker(
+    pts: Array<{ latitude: number; longitude: number }>,
+    tol: number
+  ): Array<{ latitude: number; longitude: number }> {
+    if (pts.length <= 2) return pts
+
+    let maxDist = 0
+    let index = 0
+    for (let i = 1; i < pts.length - 1; i++) {
+      const dist = perpendicularDistance(pts[i], pts[0], pts[pts.length - 1])
+      if (dist > maxDist) {
+        maxDist = dist
+        index = i
+      }
+    }
+
+    if (maxDist > tol) {
+      const left = douglasPeucker(pts.slice(0, index + 1), tol)
+      const right = douglasPeucker(pts.slice(index), tol)
+      return [...left.slice(0, -1), ...right]
+    }
+
+    return [pts[0], pts[pts.length - 1]]
+  }
+
+  return douglasPeucker(points, tolerance)
 }
