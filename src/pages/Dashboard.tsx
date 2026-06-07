@@ -9,9 +9,13 @@ import {
   ChevronRight,
   Shield,
   User,
+  Activity,
+  Gauge,
+  Signal,
+  Image as ImageIcon,
 } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
-import { useLocationStore } from '../store/locationStore'
+import { useLocationStore, getGpsStatus } from '../store/locationStore'
 import { useQuery } from '@tanstack/react-query'
 import {
   getUsers,
@@ -26,10 +30,11 @@ import {
   formatDistance,
   calculatePolylineDistance,
   formatDateTime,
+  formatTime,
 } from '../utils/helpers'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import { getUserColor } from '../utils/constants'
-import type { Track, User as UserType } from '../types'
+import type { Track, User as UserType, Checkin } from '../types'
 import L from 'leaflet'
 
 function createUserIcon(color: string) {
@@ -42,10 +47,75 @@ function createUserIcon(color: string) {
   })
 }
 
+/* ============================================================
+   GPS 状态徽章
+   ============================================================ */
+function GpsStatusBadge({ accuracy, speed, isTracking }: { accuracy: number | null; speed: number | null; isTracking: boolean }) {
+  const status = getGpsStatus(accuracy, speed, isTracking)
+
+  const config = {
+    acquiring: { label: '定位中', color: 'text-amber-400 bg-amber-500/10', icon: Signal },
+    good: { label: '信号良好', color: 'text-emerald-400 bg-emerald-500/10', icon: Signal },
+    poor: { label: '信号弱', color: 'text-rose-400 bg-rose-500/10', icon: Signal },
+    static: { label: '静止', color: 'text-slate-400 bg-slate-700/30', icon: Activity },
+  }
+
+  const c = config[status]
+  const Icon = c.icon
+
+  return (
+    <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${c.color}`}>
+      <Icon size={12} />
+      {c.label}
+      {accuracy !== null && (
+        <span className="opacity-70">· ±{Math.round(accuracy)}m</span>
+      )}
+    </div>
+  )
+}
+
+/* ============================================================
+   打卡记录卡片（小）
+   ============================================================ */
+function MiniCheckinCard({ checkin }: { checkin: Checkin }) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-slate-800/50 bg-slate-900/80 p-3">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-400 text-sm font-bold">
+        {checkin.sequence_no}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <div className="truncate text-sm font-medium text-slate-200">
+            {checkin.title || `打卡点 #${checkin.sequence_no}`}
+          </div>
+          <div className="shrink-0 text-xs text-slate-500">{formatTime(checkin.created_at)}</div>
+        </div>
+        <div className="mt-0.5 truncate text-xs text-slate-500">{checkin.address}</div>
+        {checkin.complaint_content && (
+          <div className="mt-1 truncate text-xs text-slate-400">{checkin.complaint_content}</div>
+        )}
+        <div className="mt-1 flex items-center gap-2">
+          {checkin.test_result && (
+            <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
+              已处理
+            </span>
+          )}
+          {checkin.photos && checkin.photos.length > 0 && (
+            <span className="flex items-center gap-0.5 text-[10px] text-slate-500">
+              <ImageIcon size={10} />
+              {checkin.photos.length}张
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* --------------------------- 测试人员首页 --------------------------- */
 function TesterDashboard() {
   const { user } = useAuthStore()
-  const { latitude, longitude, isTracking } = useLocationStore()
+  const { latitude, longitude, speed, accuracy, isTracking } = useLocationStore()
 
   const { data: myTracks } = useQuery({
     queryKey: ['tracks', 'mine', 'today'],
@@ -72,6 +142,9 @@ function TesterDashboard() {
   const todayCheckins = myCheckins?.length || 0
   const todayComplaints =
     myCheckins?.filter((c) => c.complaint_content && c.complaint_content.trim()).length || 0
+
+  // 最近5条打卡
+  const recentCheckins = (myCheckins || []).slice(-5).reverse()
 
   return (
     <div className="space-y-4 p-4 pb-20">
@@ -137,6 +210,48 @@ function TesterDashboard() {
           </div>
         </div>
       </div>
+
+      {/* GPS 状态栏 */}
+      {isTracking && (
+        <div className="flex items-center justify-between rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <GpsStatusBadge accuracy={accuracy} speed={speed} isTracking={isTracking} />
+            </div>
+            <div className="flex items-center gap-4 text-xs text-slate-400">
+              {accuracy !== null && (
+                <span className="flex items-center gap-1">
+                  <Gauge size={12} />
+                  精度 ±{Math.round(accuracy)}m
+                </span>
+              )}
+              {speed !== null && (
+                <span className="flex items-center gap-1">
+                  <Navigation size={12} />
+                  速度 {speed.toFixed(1)} km/h
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-slate-500">GPS状态</div>
+          </div>
+        </div>
+      )}
+
+      {/* 最近打卡记录 */}
+      {recentCheckins.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-300">最近打卡</h2>
+          </div>
+          <div className="space-y-2">
+            {recentCheckins.map((checkin) => (
+              <MiniCheckinCard key={checkin.id} checkin={checkin} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -197,6 +312,14 @@ function AdminDashboard() {
     })
     return Array.from(map.values())
   })()
+
+  // 最近5条投诉记录和打卡记录
+  const recentComplaints = (checkins || [])
+    .filter((c) => c.complaint_content && c.complaint_content.trim())
+    .slice(-5)
+    .reverse()
+
+  const recentCheckinsAll = (checkins || []).slice(-5).reverse()
 
   return (
     <div className="space-y-4 p-4 pb-20">
@@ -272,6 +395,135 @@ function AdminDashboard() {
           <div className="mt-0.5 text-xs text-slate-500">今日总里程</div>
         </div>
       </div>
+
+      {/* 最近投诉记录 */}
+      {recentComplaints.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-300">最近投诉</h2>
+            <button
+              onClick={() => navigate('/checkins')}
+              className="flex items-center gap-0.5 text-xs text-primary-400"
+            >
+              查看全部 <ChevronRight size={14} />
+            </button>
+          </div>
+          <div className="space-y-2">
+            {recentComplaints.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-start gap-3 rounded-xl border border-slate-800/50 bg-slate-900/80 p-3"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-rose-500/15 text-rose-400 text-sm font-bold">
+                  {c.sequence_no}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="truncate text-sm font-medium text-slate-200">
+                      {c.user?.name || '未知'}
+                    </div>
+                    <div className="shrink-0 text-xs text-slate-500">{formatTime(c.created_at)}</div>
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-slate-400">{c.complaint_content}</div>
+                  <div className="mt-1 text-xs text-slate-500">{c.address}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 最近打卡记录 */}
+      {recentCheckinsAll.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-300">最近打卡</h2>
+            <button
+              onClick={() => navigate('/checkins')}
+              className="flex items-center gap-0.5 text-xs text-primary-400"
+            >
+              查看全部 <ChevronRight size={14} />
+            </button>
+          </div>
+          <div className="space-y-2">
+            {recentCheckinsAll.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-start gap-3 rounded-xl border border-slate-800/50 bg-slate-900/80 p-3"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-400 text-sm font-bold">
+                  {c.sequence_no}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="truncate text-sm font-medium text-slate-200">
+                      {c.user?.name || '未知'}
+                    </div>
+                    <div className="shrink-0 text-xs text-slate-500">{formatTime(c.created_at)}</div>
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-slate-500">{c.address}</div>
+                  {c.test_result && (
+                    <span className="mt-1 inline-block rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
+                      已处理
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 人员状态列表 */}
+      {users && users.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-slate-300">人员状态</h2>
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900">
+            {users.map((u, idx) => {
+              const isOnline = u.status === 'online'
+              const latestTrack = latestByUser.find((t) => t.user_id === u.id)
+              return (
+                <div
+                  key={u.id}
+                  className={`flex items-center justify-between px-4 py-3 ${
+                    idx !== users.length - 1 ? 'border-b border-slate-800/50' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-xs text-slate-300">
+                        {u.name?.charAt(0) || '?'}
+                      </div>
+                      <div
+                        className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-slate-900 ${
+                          isOnline ? 'bg-emerald-400' : 'bg-slate-500'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-slate-200">{u.name}</div>
+                      <div className="text-xs text-slate-500">
+                        {latestTrack
+                          ? `最近更新 ${formatTime(latestTrack.created_at)}`
+                          : '暂无位置'}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className={`rounded-full px-2 py-0.5 text-[10px] ${
+                      isOnline
+                        ? 'bg-emerald-500/10 text-emerald-400'
+                        : 'bg-slate-800 text-slate-500'
+                    }`}
+                  >
+                    {isOnline ? '在线' : '离线'}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 实时地图预览 */}
       <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">

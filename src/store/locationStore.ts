@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+export type GpsStatus = 'acquiring' | 'good' | 'poor' | 'static'
+
 interface LocationState {
   latitude: number | null
   longitude: number | null
@@ -30,3 +32,13 @@ export const useLocationStore = create<LocationState>((set) => ({
   setTracking: (isTracking) => set({ isTracking }),
   setError: (error) => set({ error }),
 }))
+
+// 辅助函数：根据 accuracy 和 speed 计算GPS状态
+export function getGpsStatus(accuracy: number | null, speed: number | null, isTracking: boolean): GpsStatus {
+  if (!isTracking) return 'acquiring'
+  if (accuracy === null) return 'acquiring'
+  if (accuracy > 100) return 'poor'
+  if (accuracy > 50) return 'poor'
+  if (speed !== null && speed < 0.5) return 'static'
+  return 'good'
+}

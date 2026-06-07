@@ -9,6 +9,7 @@ interface MapState {
   playbackUserId: string | null
   isPlaying: boolean
   playbackSpeed: number
+  followMode: boolean
   toggleLayer: (layer: MapLayer) => void
   setSelectedUserId: (id: string | null) => void
   setSelectedDate: (date: string) => void
@@ -16,6 +17,7 @@ interface MapState {
   setPlaybackUserId: (id: string | null) => void
   setIsPlaying: (playing: boolean) => void
   setPlaybackSpeed: (speed: number) => void
+  setFollowMode: (follow: boolean) => void
 }
 
 export const useMapStore = create<MapState>((set) => ({
@@ -26,6 +28,7 @@ export const useMapStore = create<MapState>((set) => ({
   playbackUserId: null,
   isPlaying: false,
   playbackSpeed: 1,
+  followMode: false,
   toggleLayer: (layer) =>
     set((state) => ({
       activeLayers: state.activeLayers.includes(layer)
@@ -38,4 +41,5 @@ export const useMapStore = create<MapState>((set) => ({
   setPlaybackUserId: (id) => set({ playbackUserId: id }),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
+  setFollowMode: (follow) => set({ followMode: follow }),
 }))

@@ -187,3 +187,103 @@ export function getAddressFromCoords(lat: number, lng: number): Promise<string> 
       })
   })
 }
+
+/* ============================================================
+   图片压缩辅助函数（用于照片上传优化）
+   ============================================================ */
+
+export interface CompressOptions {
+  maxWidth?: number
+  maxHeight?: number
+  quality?: number
+  maxSizeMB?: number
+}
+
+/**
+ * 将 File/Blob 压缩为指定质量的 JPEG Blob
+ * 支持：
+ * - 尺寸缩放（默认最大 1920x1920）
+ * - 质量压缩（默认 0.85）
+ * - 大于 maxSizeMB 时自动降低质量重试
+ */
+export function compressImage(
+  file: File,
+  options: CompressOptions = {}
+): Promise<{ blob: Blob; dataUrl: string }> {
+  const { maxWidth = 1920, maxHeight = 1920, quality = 0.85, maxSizeMB = 3 } = options
+
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+
+      let { width, height } = img
+
+      // 等比缩放
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height)
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('无法创建 canvas context'))
+        return
+      }
+
+      // 移动端图片方向修正（EXIF Orientation）
+      // 简单处理：不做复杂EXIF旋转，依赖浏览器自动处理
+      ctx.drawImage(img, 0, 0, width, height)
+
+      const tryCompress = (q: number) => {
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('图片压缩失败'))
+              return
+            }
+
+            // 如果仍然大于 maxSizeMB 且质量还能降，继续压缩
+            if (blob.size > maxSizeMB * 1024 * 1024 && q > 0.5) {
+              tryCompress(q - 0.1)
+              return
+            }
+
+            const reader = new FileReader()
+            reader.onload = () => {
+              resolve({ blob, dataUrl: reader.result as string })
+            }
+            reader.onerror = reject
+            reader.readAsDataURL(blob)
+          },
+          'image/jpeg',
+          q
+        )
+      }
+
+      tryCompress(quality)
+    }
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('图片加载失败'))
+    }
+
+    img.src = url
+  })
+}
+
+/**
+ * 格式化文件大小
+ */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
