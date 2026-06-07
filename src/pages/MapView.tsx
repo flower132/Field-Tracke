@@ -20,8 +20,6 @@ import {
   Image as ImageIcon,
   ChevronRight,
   Calendar,
-  Eye,
-  EyeOff,
 } from 'lucide-react'
 import { PhotoProvider, PhotoView } from 'react-photo-view'
 import { useMapStore } from '../store/mapStore'
@@ -118,7 +116,6 @@ function MapInitializer() {
 function MapFitBounds({
   tracks,
   checkins,
-  trigger,
 }: {
   tracks?: Track[]
   checkins?: Checkin[]

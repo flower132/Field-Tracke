@@ -64,13 +64,16 @@ export async function insertTrack(payload: Omit<Track, 'id' | 'created_at'>) {
 }
 
 export async function getTracksByUser(userId: string, start: string, end: string) {
-  const { data, error } = await supabase
+  let query = supabase
     .from('tracks')
     .select('*')
     .eq('user_id', userId)
-    .gte('created_at', start)
-    .lte('created_at', end)
     .order('created_at', { ascending: true })
+
+  if (start) query = query.gte('created_at', start)
+  if (end) query = query.lte('created_at', end)
+
+  const { data, error } = await query
   return { data: data as Track[] | null, error }
 }
 

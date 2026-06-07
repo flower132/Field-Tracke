@@ -4,10 +4,8 @@ import {
   getPendingTasks,
   removeTask,
   getPendingCount,
-  type OfflineTable,
 } from '../lib/indexeddb'
 import { insertTrack, createCheckin, uploadPhoto } from '../api/supabase'
-import { SYNC_RETRY_MAX } from '../utils/constants'
 
 export function useOfflineSync() {
   const { syncStatus, setSyncStatus, setLastSyncAt, setOfflineMode } = useOfflineStore()

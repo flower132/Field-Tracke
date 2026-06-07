@@ -36,7 +36,7 @@ export async function addPendingTask(table: OfflineTable, data: unknown): Promis
     const tx = db.transaction(table, 'readwrite')
     const store = tx.objectStore(table)
     const request = store.add({
-      ...data,
+      ...(data as Record<string, unknown>),
       _createdAt: new Date().toISOString(),
     })
     request.onsuccess = () => resolve()
@@ -45,13 +45,14 @@ export async function addPendingTask(table: OfflineTable, data: unknown): Promis
 }
 
 export async function getPendingTasks(table: OfflineTable): Promise<unknown[]> {
-  const db = await openDB()
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(table, 'readonly')
-    const store = tx.objectStore(table)
-    const request = store.getAll()
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    openDB().then(db => {
+      const tx = db.transaction(table, 'readonly')
+      const store = tx.objectStore(table)
+      const request = store.getAll()
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    }).catch(reject)
   })
 }
 
@@ -95,7 +96,6 @@ export async function getPendingCount(): Promise<number> {
 }
 
 export async function getTotalSize(): Promise<number> {
-  const db = await openDB()
   const tables: OfflineTable[] = ['tracks', 'checkins', 'photos']
   let totalSize = 0
   for (const table of tables) {

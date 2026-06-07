@@ -1,9 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Route,
-  MapPin,
-  ClipboardCheck,
   Radio,
   Users,
   Navigation,
@@ -15,7 +12,9 @@ import {
   Signal,
   Image as ImageIcon,
   Edit3,
-  Clock,
+  Route,
+  MapPin,
+  ClipboardCheck,
   Map,
   CloudOff,
 } from 'lucide-react'
@@ -185,7 +184,7 @@ function TesterDashboard() {
   // 最近10条打卡
   const recentCheckins = (myCheckins || []).slice(-10).reverse()
 
-  const handleSaved = (updated: Checkin) => {
+  const handleSaved = () => {
     queryClient.invalidateQueries({ queryKey: ['checkins'] })
     setEditingCheckin(null)
   }
@@ -364,16 +363,15 @@ function AdminDashboard() {
     checkins?.filter((c) => c.complaint_content && c.complaint_content.trim()).length || 0
 
   const latestByUser = (() => {
-    const map = new Map<string, Track & { user?: UserType }>()
-    const userMap = new Map<string, UserType>()
-    ;(users || []).forEach((u) => userMap.set(u.id, u))
-    ;(latestTracks || []).forEach((t) => {
-      const existing = map.get(t.user_id)
+    const map: Record<string, (Track & { user?: UserType }) | undefined> = {}
+    ;(users || []).forEach((u: UserType) => { map[u.id] = undefined })
+    ;(latestTracks || []).forEach((t: Track) => {
+      const existing = map[t.user_id]
       if (!existing || new Date(t.created_at) > new Date(existing.created_at)) {
-        map.set(t.user_id, { ...t, user: userMap.get(t.user_id) })
+        map[t.user_id] = { ...t, user: (users || []).find((u: UserType) => u.id === t.user_id) }
       }
     })
-    return Array.from(map.values())
+    return Object.values(map).filter(Boolean) as (Track & { user?: UserType })[]
   })()
 
   const recentComplaints = (checkins || [])

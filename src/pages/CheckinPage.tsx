@@ -1,28 +1,29 @@
-import { useState, useCallback } from 'react'
-import { MapPin, Check, Loader2 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useRef, useCallback } from 'react'
+import { MapPin, Check, Trash2, Camera, Images, Loader2, AlertCircle } from 'lucide-react'
+import { PhotoProvider, PhotoView } from 'react-photo-view'
 import { useAuthStore } from '../store/authStore'
 import { useLocationStore } from '../store/locationStore'
 import { createCheckin, getNextSequenceNo, uploadPhoto } from '../api/supabase'
-import { getAddressFromCoords, formatFileSize } from '../utils/helpers'
-import { addPendingTask } from '../lib/indexeddb'
-import ImageUploader, { type PhotoItem } from '../components/ImageUploader'
-import ImageGallery from '../components/ImageGallery'
-import { useImageGallery } from '../hooks/useImageGallery'
-function generateTempId(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36)
+import { getAddressFromCoords, compressImage, formatFileSize } from '../utils/helpers'
+
+interface PhotoItem {
+  id: string
+  file: File
+  preview: string
+  status: 'pending' | 'uploading' | 'done' | 'error'
 }
 
 export default function CheckinPage() {
-  const navigate = useNavigate()
   const { user } = useAuthStore()
   const { latitude, longitude } = useLocationStore()
   const [step, setStep] = useState<'location' | 'form' | 'success'>('location')
   const [photos, setPhotos] = useState<PhotoItem[]>([])
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [compressing, setCompressing] = useState(false)
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 })
-  const gallery = useImageGallery()
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const albumInputRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
     title: '',
@@ -40,62 +41,74 @@ export default function CheckinPage() {
     setStep('form')
   }
 
-  const handleAddPhotos = useCallback((items: PhotoItem[]) => {
-    setPhotos((prev) => [...prev, ...items])
-  }, [])
+  const processFiles = useCallback(
+    async (files: FileList | null, _source: 'camera' | 'album') => {
+      if (!files) return
+      if (photos.length + files.length > 9) {
+        alert('最多上传9张照片')
+        return
+      }
+      setCompressing(true)
 
-  const handleRemovePhoto = useCallback((id: string) => {
+      const newPhotos: PhotoItem[] = []
+      for (const file of Array.from(files)) {
+        let finalFile = file
+
+        // 3. 图片压缩：大于3MB自动压缩
+        if (file.size > 3 * 1024 * 1024) {
+          try {
+            const { blob } = await compressImage(file, { maxSizeMB: 3, quality: 0.85 })
+            finalFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })
+          } catch {
+            // 压缩失败，使用原文件继续
+          }
+        }
+
+        const preview = URL.createObjectURL(finalFile)
+        newPhotos.push({
+          id: Math.random().toString(36).slice(2),
+          file: finalFile,
+          preview,
+          status: 'pending',
+        })
+      }
+
+      setPhotos((prev) => [...prev, ...newPhotos])
+      setCompressing(false)
+    },
+    [photos.length]
+  )
+
+  const handleCameraSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      await processFiles(e.target.files, 'camera')
+      // 清空 input，允许重复选择同一文件（iOS Safari 兼容）
+      e.target.value = ''
+    },
+    [processFiles]
+  )
+
+  const handleAlbumSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      await processFiles(e.target.files, 'album')
+      e.target.value = ''
+    },
+    [processFiles]
+  )
+
+  const removePhoto = (id: string) => {
     setPhotos((prev) => {
       const item = prev.find((p) => p.id === id)
       if (item) URL.revokeObjectURL(item.preview)
       return prev.filter((p) => p.id !== id)
     })
-  }, [])
-
-  const handleReorder = useCallback((from: number, to: number) => {
-    setPhotos((prev) => {
-      const next = [...prev]
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-      return next
-    })
-  }, [])
+  }
 
   const handleSubmit = async () => {
     if (!user || !latitude || !longitude || saving) return
     setSaving(true)
     const address = await getAddressFromCoords(latitude, longitude)
     const seqNo = await getNextSequenceNo(user.id)
-
-    // 离线模式：存入 IndexedDB
-    if (!navigator.onLine) {
-      const tempId = generateTempId()
-      await addPendingTask('checkins', {
-        user_id: user.id,
-        sequence_no: seqNo,
-        latitude,
-        longitude,
-        address,
-        title: form.title || `投诉处理 #${seqNo}`,
-        complaint_content: form.complaint_content,
-        test_result: form.test_result,
-        solution_result: form.solution_result,
-        remark: form.remark,
-        tempId,
-      })
-
-      for (const photo of photos) {
-        await addPendingTask('photos', {
-          checkinTempId: tempId,
-          file: photo.file,
-          fileName: photo.file.name,
-        })
-      }
-
-      setSaving(false)
-      setStep('success')
-      return
-    }
 
     const { data, error } = await createCheckin({
       user_id: user.id,
@@ -116,6 +129,7 @@ export default function CheckinPage() {
       return
     }
 
+    // 4. 上传进度显示
     if (photos.length > 0) {
       setUploading(true)
       setUploadProgress({ current: 0, total: photos.length })
@@ -149,24 +163,16 @@ export default function CheckinPage() {
         </div>
         <h2 className="text-xl font-bold text-slate-100">打卡成功</h2>
         <p className="mt-2 text-sm text-slate-500">投诉处理记录已保存</p>
-        <div className="mt-6 flex gap-3">
-          <button
-            onClick={() => {
-              setStep('location')
-              setPhotos([])
-              setForm({ title: '', complaint_content: '', test_result: '', solution_result: '', remark: '' })
-            }}
-            className="rounded-xl bg-primary-600 px-6 py-3 text-sm font-semibold text-white"
-          >
-            继续打卡
-          </button>
-          <button
-            onClick={() => navigate('/')}
-            className="rounded-xl border border-slate-700 px-6 py-3 text-sm font-medium text-slate-300"
-          >
-            查看记录
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            setStep('location')
+            setPhotos([])
+            setForm({ title: '', complaint_content: '', test_result: '', solution_result: '', remark: '' })
+          }}
+          className="mt-6 rounded-xl bg-primary-600 px-8 py-3 text-sm font-semibold text-white"
+        >
+          继续打卡
+        </button>
       </div>
     )
   }
@@ -256,48 +262,137 @@ export default function CheckinPage() {
           </div>
 
           {/* Photos */}
-          <ImageUploader
-            photos={photos}
-            onAdd={handleAddPhotos}
-            onRemove={handleRemovePhoto}
-            onReorder={handleReorder}
-            maxCount={9}
-          />
-
-          {/* 预览大图入口 */}
-          {photos.length > 0 && (
-            <button
-              onClick={() =>
-                gallery.openGallery(
-                  0,
-                  photos.map((p) => ({ src: p.preview }))
-                )
-              }
-              className="w-full rounded-xl border border-slate-700 py-2 text-xs text-slate-400"
-            >
-              查看大图 ({photos.length}张)
-            </button>
-          )}
-
-          {/* 上传进度 */}
-          {uploading && uploadProgress.total > 0 && (
-            <div className="mt-3 space-y-1">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>正在上传照片...</span>
-                <span>
-                  {uploadProgress.current}/{uploadProgress.total}
+          <div className="rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-sm font-medium text-slate-400">
+                现场照片 ({photos.length}/9)
+              </label>
+              {compressing && (
+                <span className="flex items-center gap-1 text-xs text-slate-500">
+                  <Loader2 size={12} className="animate-spin" />
+                  压缩中...
                 </span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full rounded-full bg-primary-500 transition-all"
-                  style={{
-                    width: `${(uploadProgress.current / uploadProgress.total) * 100}%`,
-                  }}
-                />
-              </div>
+              )}
             </div>
-          )}
+
+            {/* 6. 上传前预览 + 5. 删除已选图片 */}
+            <PhotoProvider>
+              <div className="grid grid-cols-3 gap-2">
+                {photos.map((photo) => (
+                  <div
+                    key={photo.id}
+                    className={`relative aspect-square overflow-hidden rounded-xl ${
+                      photo.status === 'error' ? 'ring-2 ring-rose-500' : ''
+                    }`}
+                  >
+                    <PhotoView src={photo.preview}>
+                      <img
+                        src={photo.preview}
+                        alt=""
+                        className="h-full w-full cursor-pointer object-cover"
+                      />
+                    </PhotoView>
+
+                    {/* 状态遮罩 */}
+                    {photo.status === 'uploading' && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
+                        <Loader2 size={20} className="animate-spin text-white" />
+                      </div>
+                    )}
+                    {photo.status === 'error' && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
+                        <AlertCircle size={20} className="text-rose-400" />
+                      </div>
+                    )}
+
+                    {/* 删除按钮 */}
+                    {photo.status === 'pending' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removePhoto(photo.id)
+                        }}
+                        className="absolute right-1 top-1 rounded-full bg-slate-900/80 p-1 text-slate-300"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+
+                    {/* 文件大小 */}
+                    <div className="absolute bottom-1 left-1 rounded bg-slate-900/70 px-1 py-0.5 text-[9px] text-slate-300">
+                      {formatFileSize(photo.file.size)}
+                    </div>
+                  </div>
+                ))}
+
+                {/* 添加照片按钮组 */}
+                {photos.length < 9 && (
+                  <div className="col-span-1 flex gap-2">
+                    {/* 1. 拍照按钮 */}
+                    <button
+                      onClick={() => cameraInputRef.current?.click()}
+                      disabled={compressing}
+                      className="flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 text-slate-500 active:bg-slate-800"
+                    >
+                      <Camera size={20} />
+                      <span className="mt-1 text-[10px]">拍照</span>
+                    </button>
+                    {/* 1. 相册按钮（只剩1个空位时隐藏） */}
+                    {photos.length < 8 && (
+                      <button
+                        onClick={() => albumInputRef.current?.click()}
+                        disabled={compressing}
+                        className="flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 text-slate-500 active:bg-slate-800"
+                      >
+                        <Images size={20} />
+                        <span className="mt-1 text-[10px]">相册</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </PhotoProvider>
+
+            {/* 隐藏的 input 元素 */}
+            {/* 7/8. iPhone Safari / Android Chrome 兼容 */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              onChange={handleCameraSelect}
+              className="hidden"
+            />
+            <input
+              ref={albumInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleAlbumSelect}
+              className="hidden"
+            />
+
+            {/* 4. 上传进度显示 */}
+            {uploading && uploadProgress.total > 0 && (
+              <div className="mt-3 space-y-1">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>正在上传照片...</span>
+                  <span>
+                    {uploadProgress.current}/{uploadProgress.total}
+                  </span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-primary-500 transition-all"
+                    style={{
+                      width: `${(uploadProgress.current / uploadProgress.total) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="flex gap-3 pt-2">
             <button
@@ -308,7 +403,7 @@ export default function CheckinPage() {
             </button>
             <button
               onClick={handleSubmit}
-              disabled={uploading || saving}
+              disabled={uploading || saving || compressing}
               className="flex-1 rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
               {saving ? '保存中...' : uploading ? '上传中...' : '保存打卡'}
@@ -316,15 +411,6 @@ export default function CheckinPage() {
           </div>
         </div>
       )}
-
-      <ImageGallery
-        images={photos.map((p) => ({ src: p.preview }))}
-        initialIndex={gallery.currentIndex}
-        isOpen={gallery.isOpen}
-        onClose={gallery.closeGallery}
-        onPrev={gallery.prev}
-        onNext={gallery.next}
-      />
     </div>
   )
 }

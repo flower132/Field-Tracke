@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { LogOut, MapPin, Route, ClipboardCheck, Shield, Radio, ChevronRight } from 'lucide-react'
+import { LogOut, Shield, Radio } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useLocationStore } from '../store/locationStore'
 import { useLocationTracking } from '../hooks/useLocationTracking'
@@ -9,7 +9,6 @@ import {
   getTodayRange,
   getWeekRange,
   getMonthRange,
-  formatDistance,
   calculatePolylineDistance,
   calculateOnlineMinutes,
 } from '../utils/helpers'

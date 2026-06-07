@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { SyncStatus, OfflineTask } from '../types'
+import type { SyncStatus } from '../types'
 
 interface OfflineState {
   syncStatus: SyncStatus

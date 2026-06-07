@@ -32,7 +32,7 @@ export default function StatsPage() {
       d.setDate(d.getDate() - 30)
       return { start: d.toISOString(), end: new Date().toISOString() }
     }
-    return { start: undefined, end: undefined }
+    return { start: '', end: '' }
   }, [period])
 
   const { data: checkins } = useQuery({

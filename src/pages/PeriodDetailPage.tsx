@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { ChevronLeft, Route, MapPin, ClipboardCheck, Clock, ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronLeft, MapPin, ClipboardCheck, ChevronDown, ChevronUp } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useQuery } from '@tanstack/react-query'
 import { getTracksByUser, getCheckinsByUser } from '../api/supabase'
@@ -7,10 +7,8 @@ import {
   getTodayRange,
   getWeekRange,
   getMonthRange,
-  formatDistance,
   calculatePolylineDistance,
   calculateOnlineMinutes,
-  formatDate,
   formatDateTime,
   getDayOfWeekLabel,
   groupByDay,

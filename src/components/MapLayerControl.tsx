@@ -1,4 +1,4 @@
-import { Map, Satellite, Mountain, X } from 'lucide-react'
+import { Map, Satellite, Mountain } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 import { BASE_MAPS } from '../utils/constants'
 import type { BaseMapType } from '../types'
