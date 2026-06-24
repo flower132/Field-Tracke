@@ -32,6 +32,8 @@ export interface Checkin {
   test_result: string
   solution_result: string
   remark: string
+  gps_accuracy?: number
+  gps_status?: string
   created_at: string
   edit_count?: number
   last_edited_at?: string

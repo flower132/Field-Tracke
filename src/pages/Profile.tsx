@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Shield, Radio } from 'lucide-react'
+import { LogOut, Shield, Radio, Footprints, Car, Battery } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import { useLocationStore } from '../store/locationStore'
 import { useLocationTracking } from '../hooks/useLocationTracking'
+import { useTrackingModeStore, MODE_CONFIGS, type TrackingMode } from '../store/trackingModeStore'
 import { useQuery } from '@tanstack/react-query'
 import { getTracksByUser, getCheckinsByUser } from '../api/supabase'
 import {
@@ -14,11 +15,20 @@ import {
 } from '../utils/helpers'
 import PeriodOverviewCard from '../components/PeriodOverviewCard'
 
+const MODE_ICONS: Record<TrackingMode, typeof Footprints> = {
+  walking: Footprints,
+  driving: Car,
+  powerSave: Battery,
+}
+
 export default function Profile() {
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
   const { latitude, longitude, speed, battery, isTracking } = useLocationStore()
   const { startTracking, stopTracking } = useLocationTracking()
+  const mode = useTrackingModeStore((s) => s.mode)
+  const setMode = useTrackingModeStore((s) => s.setMode)
+  const modeConfig = MODE_CONFIGS[mode]
   const isAdmin = user?.role === 'admin'
 
   const { data: myTracks } = useQuery({
@@ -161,6 +171,52 @@ export default function Profile() {
             >
               {isTracking ? '停止上传位置' : '开始上传位置'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 测试人员：定位模式切换 */}
+      {!isAdmin && (
+        <div className="mt-4 rounded-2xl border border-slate-800/50 bg-slate-900 p-4">
+          <h2 className="font-semibold text-slate-200">定位模式</h2>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {(Object.keys(MODE_CONFIGS) as TrackingMode[]).map((m) => {
+              const cfg = MODE_CONFIGS[m]
+              const Icon = MODE_ICONS[m]
+              const active = mode === m
+              return (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`flex flex-col items-center justify-center rounded-xl border py-3 text-xs transition-colors ${
+                    active
+                      ? 'border-primary-500 bg-primary-500/10 text-primary-400'
+                      : 'border-slate-700 text-slate-400 hover:bg-slate-800'
+                  }`}
+                >
+                  <Icon size={18} className="mb-1" />
+                  {cfg.label}
+                </button>
+              )
+            })}
+          </div>
+          <div className="mt-3 space-y-1.5 rounded-xl bg-slate-950/50 p-3 text-xs text-slate-400">
+            <div className="flex items-center justify-between">
+              <span>上传频率</span>
+              <span className="text-slate-200">
+                {modeConfig.uploadIntervalMs >= 60000
+                  ? `${Math.round(modeConfig.uploadIntervalMs / 60000)}分钟`
+                  : `${Math.round(modeConfig.uploadIntervalMs / 1000)}秒`}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>最小记录距离</span>
+              <span className="text-slate-200">{modeConfig.minMoveDistance}米</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>高精度定位</span>
+              <span className="text-slate-200">{modeConfig.enableHighAccuracy ? '开启' : '关闭'}</span>
+            </div>
           </div>
         </div>
       )}

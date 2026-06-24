@@ -24,6 +24,7 @@ import { PhotoProvider, PhotoView } from 'react-photo-view'
 import { useMapStore } from '../store/mapStore'
 import { useLocationStore } from '../store/locationStore'
 import { useAuthStore } from '../store/authStore'
+import { useRealtime } from '../hooks/useRealtime'
 import {
   getUsers,
   getLatestTracks,
@@ -285,6 +286,8 @@ export default function MapView() {
     [baseMap]
   )
 
+  const { isConnected } = useRealtime()
+
   const { data: users } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
@@ -300,7 +303,7 @@ export default function MapView() {
       const { data } = await getLatestTracks()
       return data || []
     },
-    refetchInterval: 30000,
+    refetchInterval: isConnected ? false : 30000,
   })
 
   const dateRange = useMemo(() => {

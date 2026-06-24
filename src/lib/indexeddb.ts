@@ -37,6 +37,7 @@ export async function addPendingTask(table: OfflineTable, data: unknown): Promis
     const store = tx.objectStore(table)
     const request = store.add({
       ...(data as Record<string, unknown>),
+      retryCount: 0,
       _createdAt: new Date().toISOString(),
     })
     request.onsuccess = () => resolve()
@@ -50,7 +51,15 @@ export async function getPendingTasks(table: OfflineTable): Promise<unknown[]> {
       const tx = db.transaction(table, 'readonly')
       const store = tx.objectStore(table)
       const request = store.getAll()
-      request.onsuccess = () => resolve(request.result)
+      request.onsuccess = () => {
+        const items = request.result as Array<{ _createdAt?: string; retryCount?: number }>
+        items.sort((a, b) => {
+          const ta = a._createdAt ? new Date(a._createdAt).getTime() : 0
+          const tb = b._createdAt ? new Date(b._createdAt).getTime() : 0
+          return ta - tb
+        })
+        resolve(items)
+      }
       request.onerror = () => reject(request.error)
     }).catch(reject)
   })
@@ -64,6 +73,32 @@ export async function removeTask(table: OfflineTable, id: number): Promise<void>
     const request = store.delete(id)
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error)
+  })
+}
+
+export async function updateTaskRetry(
+  table: OfflineTable,
+  id: number,
+  retryCount: number
+): Promise<void> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(table, 'readwrite')
+    const store = tx.objectStore(table)
+    const getReq = store.get(id)
+    getReq.onsuccess = () => {
+      const data = getReq.result
+      if (!data) {
+        resolve()
+        return
+      }
+      data.retryCount = retryCount
+      data._lastRetryAt = new Date().toISOString()
+      const putReq = store.put(data)
+      putReq.onsuccess = () => resolve()
+      putReq.onerror = () => reject(putReq.error)
+    }
+    getReq.onerror = () => reject(getReq.error)
   })
 }
 

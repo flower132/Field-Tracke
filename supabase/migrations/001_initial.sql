@@ -35,6 +35,8 @@ create table if not exists public.checkins (
   test_result text,
   solution_result text,
   remark text,
+  gps_accuracy double precision,
+  gps_status text,
   created_at timestamptz default now() not null
 );
 

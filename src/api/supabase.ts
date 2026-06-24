@@ -77,11 +77,13 @@ export async function getTracksByUser(userId: string, start: string, end: string
   return { data: data as Track[] | null, error }
 }
 
-export async function getLatestTracks() {
-  // 获取每个用户最新的位置
+export async function getLatestTracks(hoursBack = 24) {
+  // 获取指定时间范围内每个用户最新的位置，默认最近 24 小时
+  const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString()
   const { data, error } = await supabase
     .from('tracks')
     .select('*, user:users(*)')
+    .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(1000)
   return { data: data as (Track & { user: User })[] | null, error }
@@ -208,7 +210,7 @@ export async function uploadPhoto(file: File, checkinId: string) {
 }
 
 // Realtime subscriptions
-export function subscribeToTracks(callback: (payload: any) => void) {
+export function subscribeToTracks(callback: (payload: unknown) => void) {
   return supabase
     .channel('tracks-channel')
     .on(
@@ -219,7 +221,7 @@ export function subscribeToTracks(callback: (payload: any) => void) {
     .subscribe()
 }
 
-export function subscribeToCheckins(callback: (payload: any) => void) {
+export function subscribeToCheckins(callback: (payload: unknown) => void) {
   return supabase
     .channel('checkins-channel')
     .on(

@@ -1,10 +1,13 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { MapPin, Check, Trash2, Camera, Images, Loader2, AlertCircle } from 'lucide-react'
 import { PhotoProvider, PhotoView } from 'react-photo-view'
 import { useAuthStore } from '../store/authStore'
-import { useLocationStore } from '../store/locationStore'
+import { useLocationStore, getGpsStatus } from '../store/locationStore'
+import { useLocationTracking } from '../hooks/useLocationTracking'
 import { createCheckin, getNextSequenceNo, uploadPhoto } from '../api/supabase'
-import { getAddressFromCoords, compressImage, formatFileSize } from '../utils/helpers'
+import { addPendingTask } from '../lib/indexeddb'
+import { getAddressFromCoords, compressImage, formatFileSize, calculateDistance } from '../utils/helpers'
+import type { GpsStatus } from '../store/locationStore'
 
 interface PhotoItem {
   id: string
@@ -13,17 +16,34 @@ interface PhotoItem {
   status: 'pending' | 'uploading' | 'done' | 'error'
 }
 
+interface PositionSample {
+  lat: number
+  lng: number
+  accuracy: number
+  time: number
+}
+
+const STABILITY_CHECK_COUNT = 3
+const STABILITY_THRESHOLD_METERS = 5
+const GPS_QUALITY_ACCURACY_LIMIT = 50
+
 export default function CheckinPage() {
   const { user } = useAuthStore()
-  const { latitude, longitude } = useLocationStore()
+  const { latitude, longitude, accuracy, speed, isTracking } = useLocationStore()
+  const { forceUpload } = useLocationTracking()
   const [step, setStep] = useState<'location' | 'form' | 'success'>('location')
   const [photos, setPhotos] = useState<PhotoItem[]>([])
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [compressing, setCompressing] = useState(false)
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 })
+  const [gpsWarning, setGpsWarning] = useState<string | null>(null)
+  const [isStable, setIsStable] = useState(false)
+  const [stabilityMessage, setStabilityMessage] = useState<string | null>(null)
+  const [forceCheckin, setForceCheckin] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const albumInputRef = useRef<HTMLInputElement>(null)
+  const recentPositionsRef = useRef<PositionSample[]>([])
 
   const [form, setForm] = useState({
     title: '',
@@ -33,16 +53,81 @@ export default function CheckinPage() {
     remark: '',
   })
 
-  const handleStart = async () => {
-    if (!latitude || !longitude) {
-      alert('正在获取位置，请稍候...')
-      return
+  // 收集最近位置样本，用于稳定性判断
+  useEffect(() => {
+    if (!latitude || !longitude || !accuracy) return
+    const now = Date.now()
+    recentPositionsRef.current.push({ lat: latitude, lng: longitude, accuracy, time: now })
+    // 只保留最近 5 个样本
+    recentPositionsRef.current = recentPositionsRef.current.slice(-5)
+  }, [latitude, longitude, accuracy])
+
+  const checkStability = useCallback((): boolean => {
+    const samples = recentPositionsRef.current
+    if (samples.length < STABILITY_CHECK_COUNT) return false
+    const recent = samples.slice(-STABILITY_CHECK_COUNT)
+    for (let i = 1; i < recent.length; i++) {
+      const d = calculateDistance(recent[i - 1].lat, recent[i - 1].lng, recent[i].lat, recent[i].lng)
+      if (d >= STABILITY_THRESHOLD_METERS) return false
     }
-    setStep('form')
-  }
+    return true
+  }, [])
+
+  const resetGpsCheck = useCallback(() => {
+    setGpsWarning(null)
+    setStabilityMessage(null)
+    setForceCheckin(false)
+    setIsStable(false)
+  }, [])
+
+  const handleStart = useCallback(
+    async (force = false) => {
+      if (!latitude || !longitude) {
+        setGpsWarning('正在获取位置，请稍候...')
+        return
+      }
+
+      if (!isTracking) {
+        setGpsWarning('请先开启定位上传（个人中心 → 位置上传）')
+        return
+      }
+
+      const currentAccuracy = accuracy ?? Infinity
+
+      if (currentAccuracy > GPS_QUALITY_ACCURACY_LIMIT && !force) {
+        setGpsWarning(`当前定位精度不足（±${Math.round(currentAccuracy)}m），建议到开阔处再打卡`)
+        setForceCheckin(true)
+        return
+      }
+
+      if (!force && !checkStability()) {
+        setStabilityMessage('正在校准位置稳定性，请保持静止...')
+        setTimeout(() => {
+          if (checkStability()) {
+            setIsStable(true)
+            setStabilityMessage(null)
+          } else {
+            setStabilityMessage('位置尚不稳定，建议静止后重试')
+          }
+        }, 3000)
+        return
+      }
+
+      // 通过校验：立即强制上传一条轨迹点
+      try {
+        await forceUpload()
+      } catch {
+        // 上传失败不阻断打卡流程
+      }
+
+      resetGpsCheck()
+      setStep('form')
+    },
+    [latitude, longitude, accuracy, isTracking, checkStability, forceUpload, resetGpsCheck]
+  )
 
   const processFiles = useCallback(
-    async (files: FileList | null, _source: 'camera' | 'album') => {
+    async (files: FileList | null) => {
       if (!files) return
       if (photos.length + files.length > 9) {
         alert('最多上传9张照片')
@@ -81,7 +166,7 @@ export default function CheckinPage() {
 
   const handleCameraSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
-      await processFiles(e.target.files, 'camera')
+      await processFiles(e.target.files)
       // 清空 input，允许重复选择同一文件（iOS Safari 兼容）
       e.target.value = ''
     },
@@ -90,7 +175,7 @@ export default function CheckinPage() {
 
   const handleAlbumSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
-      await processFiles(e.target.files, 'album')
+      await processFiles(e.target.files)
       e.target.value = ''
     },
     [processFiles]
@@ -109,8 +194,9 @@ export default function CheckinPage() {
     setSaving(true)
     const address = await getAddressFromCoords(latitude, longitude)
     const seqNo = await getNextSequenceNo(user.id)
+    const gpsStatus = getGpsStatus(accuracy, speed, isTracking)
 
-    const { data, error } = await createCheckin({
+    const checkinPayload = {
       user_id: user.id,
       sequence_no: seqNo,
       latitude,
@@ -121,16 +207,13 @@ export default function CheckinPage() {
       test_result: form.test_result,
       solution_result: form.solution_result,
       remark: form.remark,
-    })
-
-    if (error || !data) {
-      setSaving(false)
-      alert('保存失败: ' + (error?.message || '未知错误'))
-      return
+      gps_accuracy: accuracy ?? undefined,
+      gps_status: gpsStatus as GpsStatus,
     }
 
-    // 4. 上传进度显示
-    if (photos.length > 0) {
+    // 4. 照片处理
+    const processPhotos = async (checkinId: string) => {
+      if (photos.length === 0) return
       setUploading(true)
       setUploadProgress({ current: 0, total: photos.length })
 
@@ -140,7 +223,7 @@ export default function CheckinPage() {
         setUploadProgress({ current: i, total: photos.length })
 
         try {
-          await uploadPhoto(photo.file, data.id)
+          await uploadPhoto(photo.file, checkinId)
           setPhotos((prev) => prev.map((p) => (p.id === photo.id ? { ...p, status: 'done' } : p)))
         } catch {
           setPhotos((prev) => prev.map((p) => (p.id === photo.id ? { ...p, status: 'error' } : p)))
@@ -149,6 +232,29 @@ export default function CheckinPage() {
 
       setUploadProgress({ current: photos.length, total: photos.length })
       setUploading(false)
+    }
+
+    if (!navigator.onLine) {
+      // 离线打卡：存入 IndexedDB，包含 GPS 质量与临时 ID
+      const tempId = Math.random().toString(36).slice(2)
+      await addPendingTask('checkins', { ...checkinPayload, tempId })
+
+      // 离线照片一并存入 IndexedDB，等待同步
+      for (const photo of photos) {
+        await addPendingTask('photos', {
+          checkinTempId: tempId,
+          file: photo.file,
+          fileName: photo.file.name,
+        })
+      }
+    } else {
+      const { data, error } = await createCheckin(checkinPayload)
+      if (error || !data) {
+        setSaving(false)
+        alert('保存失败: ' + (error?.message || '未知错误'))
+        return
+      }
+      await processPhotos(data.id)
     }
 
     setSaving(false)
@@ -168,6 +274,8 @@ export default function CheckinPage() {
             setStep('location')
             setPhotos([])
             setForm({ title: '', complaint_content: '', test_result: '', solution_result: '', remark: '' })
+            resetGpsCheck()
+            recentPositionsRef.current = []
           }}
           className="mt-6 rounded-xl bg-primary-600 px-8 py-3 text-sm font-semibold text-white"
         >
@@ -176,6 +284,16 @@ export default function CheckinPage() {
       </div>
     )
   }
+
+  const gpsStatus = getGpsStatus(accuracy, speed, isTracking)
+  const statusConfig: Record<GpsStatus, { label: string; color: string }> = {
+    acquiring: { label: '定位中', color: 'text-slate-400' },
+    excellent: { label: '优秀', color: 'text-emerald-400' },
+    good: { label: '良好', color: 'text-sky-400' },
+    fair: { label: '一般', color: 'text-amber-400' },
+    poor: { label: '较差', color: 'text-rose-400' },
+  }
+  const currentStatus = statusConfig[gpsStatus]
 
   return (
     <div className="h-full overflow-y-auto px-4 pb-20 pt-4">
@@ -188,18 +306,73 @@ export default function CheckinPage() {
             <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-primary-500/10 text-primary-400">
               <MapPin size={36} />
             </div>
+
+            {/* GPS 质量面板 */}
+            <div className="mb-4 space-y-2 rounded-xl border border-slate-800/50 bg-slate-950/50 p-3 text-left">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">GPS精度</span>
+                <span className="font-medium text-slate-200">
+                  {accuracy !== null ? `±${Math.round(accuracy)}m` : '--'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">定位状态</span>
+                <span className={`font-medium ${currentStatus.color}`}>{currentStatus.label}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">速度</span>
+                <span className="font-medium text-slate-200">{(speed || 0).toFixed(1)} km/h</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">位置上传</span>
+                <span className={isTracking ? 'font-medium text-emerald-400' : 'font-medium text-slate-500'}>
+                  {isTracking ? '运行中' : '已停止'}
+                </span>
+              </div>
+            </div>
+
+            {gpsWarning && (
+              <div className="mb-3 flex items-start gap-2 rounded-xl bg-rose-500/10 p-3 text-left text-sm text-rose-300">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                <div className="flex-1">{gpsWarning}</div>
+              </div>
+            )}
+
+            {stabilityMessage && (
+              <div className="mb-3 flex items-center gap-2 rounded-xl bg-amber-500/10 p-3 text-left text-sm text-amber-300">
+                <Loader2 size={16} className="animate-spin" />
+                {stabilityMessage}
+              </div>
+            )}
+
+            {isStable && (
+              <div className="mb-3 rounded-xl bg-emerald-500/10 p-3 text-sm text-emerald-300">
+                位置已稳定，可以开始打卡
+              </div>
+            )}
+
             <p className="text-sm text-slate-300">
               {latitude && longitude
                 ? `位置已获取: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
                 : '正在获取位置...'}
             </p>
+
             <button
-              onClick={handleStart}
+              onClick={() => handleStart(false)}
               disabled={!latitude || !longitude}
-              className="mt-6 w-full rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+              className="mt-4 w-full rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
             >
               开始处理
             </button>
+
+            {forceCheckin && (
+              <button
+                onClick={() => handleStart(true)}
+                className="mt-3 w-full rounded-xl border border-rose-500/30 bg-rose-500/10 py-3 text-sm font-semibold text-rose-400"
+              >
+                强制打卡（记录定位风险）
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -275,7 +448,6 @@ export default function CheckinPage() {
               )}
             </div>
 
-            {/* 6. 上传前预览 + 5. 删除已选图片 */}
             <PhotoProvider>
               <div className="grid grid-cols-3 gap-2">
                 {photos.map((photo) => (
@@ -293,7 +465,6 @@ export default function CheckinPage() {
                       />
                     </PhotoView>
 
-                    {/* 状态遮罩 */}
                     {photo.status === 'uploading' && (
                       <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
                         <Loader2 size={20} className="animate-spin text-white" />
@@ -305,7 +476,6 @@ export default function CheckinPage() {
                       </div>
                     )}
 
-                    {/* 删除按钮 */}
                     {photo.status === 'pending' && (
                       <button
                         onClick={(e) => {
@@ -318,17 +488,14 @@ export default function CheckinPage() {
                       </button>
                     )}
 
-                    {/* 文件大小 */}
                     <div className="absolute bottom-1 left-1 rounded bg-slate-900/70 px-1 py-0.5 text-[9px] text-slate-300">
                       {formatFileSize(photo.file.size)}
                     </div>
                   </div>
                 ))}
 
-                {/* 添加照片按钮组 */}
                 {photos.length < 9 && (
                   <div className="col-span-1 flex gap-2">
-                    {/* 拍照按钮 */}
                     <button
                       onClick={() => cameraInputRef.current?.click()}
                       disabled={compressing}
@@ -337,7 +504,6 @@ export default function CheckinPage() {
                       <Camera size={20} />
                       <span className="mt-1 text-[10px]">拍照</span>
                     </button>
-                    {/* 相册按钮 */}
                     <button
                       onClick={() => albumInputRef.current?.click()}
                       disabled={compressing}
@@ -351,8 +517,6 @@ export default function CheckinPage() {
               </div>
             </PhotoProvider>
 
-            {/* 隐藏的 input 元素 */}
-            {/* 7/8. iPhone Safari / Android Chrome 兼容 */}
             <input
               ref={cameraInputRef}
               type="file"
@@ -371,7 +535,6 @@ export default function CheckinPage() {
               className="hidden"
             />
 
-            {/* 4. 上传进度显示 */}
             {uploading && uploadProgress.total > 0 && (
               <div className="mt-3 space-y-1">
                 <div className="flex items-center justify-between text-xs text-slate-400">
@@ -394,7 +557,10 @@ export default function CheckinPage() {
 
           <div className="flex gap-3 pt-2">
             <button
-              onClick={() => setStep('location')}
+              onClick={() => {
+                setStep('location')
+                resetGpsCheck()
+              }}
               className="flex-1 rounded-xl border border-slate-700 py-3 text-sm font-medium text-slate-300"
             >
               返回

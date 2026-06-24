@@ -7,9 +7,8 @@ import {
   ChevronRight,
   Shield,
   User,
-  Activity,
-  Gauge,
   Signal,
+  Gauge,
   Image as ImageIcon,
   Edit3,
   Route,
@@ -21,6 +20,7 @@ import {
 import { useAuthStore } from '../store/authStore'
 import { useLocationStore, getGpsStatus } from '../store/locationStore'
 import { useOfflineSync } from '../hooks/useOfflineSync'
+import { useRealtime } from '../hooks/useRealtime'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getUsers,
@@ -70,10 +70,11 @@ function GpsStatusBadge({
   const status = getGpsStatus(accuracy, speed, isTracking)
 
   const config = {
-    acquiring: { label: '定位中', color: 'text-amber-400 bg-amber-500/10', icon: Signal },
-    good: { label: '信号良好', color: 'text-emerald-400 bg-emerald-500/10', icon: Signal },
-    poor: { label: '信号弱', color: 'text-rose-400 bg-rose-500/10', icon: Signal },
-    static: { label: '静止', color: 'text-slate-400 bg-slate-700/30', icon: Activity },
+    acquiring: { label: '定位中', color: 'text-slate-400 bg-slate-700/30', icon: Signal },
+    excellent: { label: '优秀', color: 'text-emerald-400 bg-emerald-500/10', icon: Signal },
+    good: { label: '良好', color: 'text-sky-400 bg-sky-500/10', icon: Signal },
+    fair: { label: '一般', color: 'text-amber-400 bg-amber-500/10', icon: Signal },
+    poor: { label: '较差', color: 'text-rose-400 bg-rose-500/10', icon: Signal },
   }
 
   const c = config[status]
@@ -333,6 +334,7 @@ function TesterDashboard() {
 /* --------------------------- 管理员首页 --------------------------- */
 function AdminDashboard() {
   const navigate = useNavigate()
+  const { isConnected } = useRealtime()
 
   const { data: users } = useQuery({
     queryKey: ['users'],
@@ -366,7 +368,7 @@ function AdminDashboard() {
       const { data } = await getLatestTracks()
       return data || []
     },
-    refetchInterval: 30000,
+    refetchInterval: isConnected ? false : 30000,
   })
 
   const onlineCount = users?.filter((u) => u.status === 'online').length || 0
